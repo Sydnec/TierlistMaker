@@ -1,0 +1,12 @@
+{
+  "scripts": {
+    "dev": "next dev --turbopack",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "lint:fix": "next lint --fix",
+    "clean": "rm -rf .next node_modules/.cache",
+    "type-check": "tsc --noEmit",
+    "preview": "npm run build && npm run start"
+  }
+}

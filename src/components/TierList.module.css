@@ -1,0 +1,845 @@
+.tierListContainer {
+  display: flex;
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+  gap: 20px;
+  font-family: var(--font-geist-sans);
+  padding: 10px;
+  min-height: 100vh;
+  position: relative;
+}
+
+.tierList {
+  flex: 1;
+  min-width: 0; /* Permet le shrink */
+}
+
+.header {
+  margin-bottom: 32px;
+  text-align: center;
+}
+
+.header h2 {
+  font-size: 2rem;
+  font-weight: 700;
+  margin-bottom: 8px;
+  color: var(--foreground);
+}
+
+.stats {
+  color: rgba(var(--gray-rgb), 0.7);
+  font-size: 0.9rem;
+}
+
+.tierRow {
+  display: flex;
+  margin-bottom: 8px;
+  min-height: 120px;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.tierRow:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+}
+
+.tierRow[data-tier] {
+  border: 1px solid rgba(var(--gray-rgb), 0.3);
+  transition: border-color 0.2s ease;
+}
+
+.tierRow[data-tier]:hover {
+  border-color: rgba(var(--gray-rgb), 0.3);
+}
+
+.unrankedRow {
+  background: var(--gray-alpha-100);
+  border: 2px solid var(--gray-alpha-200);
+}
+
+.tierLabel {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  width: 150px;
+  min-width: 150px;
+  max-width: 150px;
+  padding: 16px 8px;
+  background: var(--foreground);
+  color: var(--background);
+  font-weight: 600;
+  text-align: center;
+  position: relative;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+}
+
+.unrankedRow .tierLabel {
+  background: var(--gray-alpha-200);
+  color: var(--foreground);
+}
+
+.tierName {
+  font-size: 0.95rem;
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  transition: opacity 0.2s ease;
+  line-height: 1.2;
+  word-break: keep-all;
+  overflow-wrap: normal;
+  hyphens: none;
+  text-align: center;
+  max-width: 100%;
+}
+
+.tierName:hover {
+  opacity: 0.8;
+}
+
+.tierCount {
+  font-size: 0.8rem;
+  opacity: 0.8;
+  background: rgba(255, 255, 255, 0.2);
+  padding: 2px 8px;
+  border-radius: 12px;
+  min-width: 24px;
+}
+
+.tierContent {
+  flex: 1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 16px;
+  background: var(--background);
+  align-items: flex-start;
+  align-content: flex-start;
+  min-height: 88px;
+  position: relative;
+}
+
+.emptyTier {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start; /* Aligné à gauche au lieu de center */
+  width: 100%;
+  height: 88px;
+  color: rgba(var(--gray-rgb), 0.5);
+  font-style: italic;
+  border: 2px dashed transparent; /* Transparent par défaut */
+  border-radius: 8px;
+  transition: all 0.3s ease;
+  padding-left: 16px; /* Ajouter un padding pour l'alignement */
+}
+
+/* Quand on a juste le texte, on le centre */
+.emptyTier.hasPlaceholder {
+  justify-content: center;
+  padding-left: 0;
+}
+
+.tierRow:hover .emptyTier {
+  border: 2px dashed rgba(var(--gray-rgb), 0.3);
+  color: rgba(var(--gray-rgb), 0.7);
+}
+
+/* Affichage des cadres pendant le drag & drop */
+.tierRow.dragOver .emptyTier,
+.tierRow[data-drag-active="true"] .emptyTier {
+  border: 2px dashed rgba(var(--gray-rgb), 0.4);
+  color: rgba(var(--gray-rgb), 0.8);
+}
+
+/* Drag and drop states */
+.tierRow.dragOver {
+  background: rgba(var(--foreground), 0.05);
+  border-color: var(--foreground);
+}
+
+.tierRow.dragOver .emptyTier {
+  border-color: var(--foreground);
+  color: var(--foreground);
+  background: rgba(var(--foreground), 0.05);
+}
+
+/* Wrapper pour chaque carte d'anime permettant le positionnement */
+.itemCardWrapper {
+  position: relative;
+  display: inline-block;
+}
+
+/* Indicateur de position pour le drop */
+.dropIndicator {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: #667eea;
+  border-radius: 2px;
+  z-index: 10;
+  box-shadow: 0 0 8px rgba(102, 126, 234, 0.6);
+  animation: pulse 1s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scaleX(1);
+  }
+  50% {
+    opacity: 0.7;
+    transform: scaleX(1.2);
+  }
+}
+
+/* Position de l'indicateur avant ou après */
+.dropIndicator {
+  left: -2px;
+}
+
+.itemCardWrapper:last-child .dropIndicator {
+  right: -2px;
+  left: auto;
+}
+
+/* États de drag et drop avec aperçu visuel */
+.itemCardWrapper.dragging {
+  opacity: 0;
+  transform: scale(0);
+  width: 0;
+  height: 0;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  transition: all 0.2s ease;
+}
+
+.itemCardWrapper.placeholder {
+  background: rgba(102, 126, 234, 0.1);
+  border: 2px dashed #667eea;
+  border-radius: 8px;
+  animation: placeholderPulse 1.5s infinite;
+}
+
+@keyframes placeholderPulse {
+  0%, 100% {
+    border-color: #667eea;
+    background: rgba(102, 126, 234, 0.1);
+  }
+  50% {
+    border-color: #5a67d8;
+    background: rgba(102, 126, 234, 0.2);
+  }
+}
+
+.dropPlaceholder {
+  position: relative;
+  opacity: 0.8;
+  transform: scale(0.95);
+  filter: brightness(1.1);
+}
+
+.dropPlaceholder::before {
+  content: '';
+  position: absolute;
+  top: -2px;
+  left: -2px;
+  right: -2px;
+  bottom: -2px;
+  background: linear-gradient(45deg, #667eea, #764ba2);
+  border-radius: 8px;
+  z-index: -1;
+  animation: shimmer 2s infinite;
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+/* Responsive design */
+@media (max-width: 1024px) {
+  .tierListContainer {
+    padding: 16px;
+    gap: 16px;
+  }
+  
+  .unrankedSidebar {
+    width: 240px;
+  }
+  
+  .unrankedSidebar.closed {
+    width: 45px;
+  }
+  
+  .tierLabel {
+    width: 120px;
+    min-width: 120px;
+    max-width: 120px;
+    padding: 10px 6px;
+  }
+  
+  .tierName {
+    font-size: 1rem;
+  }
+  
+  .tierContent {
+    gap: 8px;
+    padding: 12px;
+  }
+}
+
+@media (max-width: 768px) {
+  .tierListContainer {
+    flex-direction: column;
+    padding: 12px;
+  }
+  
+  .unrankedSidebar {
+    width: 100%;
+    position: relative;
+    top: 0;
+    max-height: 300px;
+    order: -1; /* Place la sidebar en haut sur mobile */
+  }
+  
+  .unrankedSidebar.closed {
+    width: 100%;
+    max-height: 30px;
+  }
+  
+  .unrankedContent {
+    flex-direction: row;
+    flex-wrap: wrap;
+    max-height: 240px;
+  }
+  
+  .closed .unrankedContent {
+    display: none;
+  }
+  
+  .tierRow {
+    flex-direction: column;
+    min-height: auto;
+  }
+  
+  .tierLabel {
+    flex-direction: row;
+    justify-content: space-between;
+    width: 100%;
+    min-width: auto;
+    max-width: none;
+    padding: 12px 16px;
+  }
+  
+  .tierName {
+    font-size: 0.9rem;
+  }
+  
+  .tierContent {
+    padding: 16px;
+    min-height: 120px;
+  }
+  
+  .emptyTier {
+    height: 80px;
+  }
+}
+
+@media (max-width: 480px) {
+  .tierList {
+    padding: 12px;
+  }
+  
+  .header h2 {
+    font-size: 1.5rem;
+  }
+  
+  .stats {
+    font-size: 0.8rem;
+  }
+  
+  .tierLabel {
+    padding: 8px 12px;
+  }
+  
+  .tierName {
+    font-size: 0.8rem;
+  }
+  
+  .tierCount {
+    font-size: 0.7rem;
+  }
+  
+  .tierContent {
+    padding: 12px;
+    gap: 6px;
+  }
+  
+  .tierHeader {
+    flex-direction: column;
+    gap: 12px;
+    text-align: center;
+  }
+
+  .tierControls {
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+
+  .tierNameInput {
+    min-width: 100px;
+    font-size: 0.9rem;
+  }
+
+  .colorPicker {
+    width: 20px;
+    height: 20px;
+  }
+
+  .deleteTierButton {
+    width: 20px;
+    height: 20px;
+    font-size: 14px;
+  }
+
+  .headerControls {
+    flex-direction: column;
+    gap: 8px;
+    width: 100%;
+  }
+
+  .editModeButton {
+    padding: 8px 12px;
+    font-size: 0.8rem;
+    width: 100%;
+    justify-content: center;
+  }
+
+  .addTierButton {
+    width: 100%;
+    padding: 8px 12px;
+    font-size: 0.8rem;
+  }
+}
+
+.tierHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+  padding: 20px 0;
+  border-bottom: 2px solid var(--gray-alpha-200);
+}
+
+.tierHeader h2 {
+  font-size: 1.8rem;
+  font-weight: 700;
+  margin: 0;
+  color: var(--foreground);
+}
+
+.addTierButton {
+  background: #667eea;
+  color: white;
+  border: none;
+  padding: 12px 20px;
+  border-radius: 8px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-size: 0.9rem;
+}
+
+.addTierButton:hover {
+  background: #5a67d8;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+}
+
+.tierControls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.colorPicker {
+  width: 20px;
+  height: 20px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-radius: 4px;
+  cursor: pointer;
+  background: none;
+}
+
+.tierNameInput {
+  background: rgba(255, 255, 255, 0.95);
+  border: 2px solid rgba(255, 255, 255, 0.8);
+  border-radius: 4px;
+  padding: 4px 6px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #333;
+  width: 120px;
+  text-align: center;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.tierNameInput:focus {
+  outline: none;
+  border-color: #667eea;
+}
+
+.deleteTierButton {
+  background: rgba(255, 255, 255, 0.2);
+  color: white;
+  border: none;
+  border-radius: 50%;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-weight: bold;
+  font-size: 14px;
+  transition: all 0.2s ease;
+}
+
+.deleteTierButton:hover {
+  background: #e53e3e;
+  color: white;
+  transform: scale(1.1);
+  box-shadow: 0 2px 8px rgba(229, 62, 62, 0.4);
+}
+
+.headerControls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.editModeButton {
+  background: #f7fafc;
+  color: #2d3748;
+  border: 2px solid #e2e8f0;
+  padding: 10px 16px;
+  border-radius: 8px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-size: 0.9rem;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.editModeButton:hover {
+  background: #edf2f7;
+  border-color: #cbd5e0;
+  transform: translateY(-1px);
+}
+
+.editModeActive {
+  background: #667eea !important;
+  color: white !important;
+  border-color: #667eea !important;
+}
+
+.editModeActive:hover {
+  background: #5a67d8 !important;
+  border-color: #5a67d8 !important;
+}
+
+/* Sidebar des animes non classés */
+.unrankedSidebar {
+  width: 280px;
+  background: var(--background);
+  border: 1px solid var(--gray-alpha-200);
+  border-radius: 12px;
+  height: fit-content;
+  max-height: calc(100vh - 40px);
+  position: sticky;
+  top: 20px;
+  transition: all 0.3s ease;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.unrankedSidebar.closed {
+  width: 50px;
+}
+
+.sidebarHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px;
+  border-bottom: 1px solid var(--gray-alpha-200);
+  background: var(--gray-alpha-100);
+  border-radius: 12px 12px 0 0;
+}
+
+.sidebarHeader h3 {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--foreground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.closed .sidebarHeader h3 {
+  display: none;
+}
+
+.sidebarControls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.unrankedCount {
+  background: var(--foreground);
+  color: var(--background);
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  min-width: 24px;
+  text-align: center;
+}
+
+.closed .unrankedCount {
+  display: none;
+}
+
+.toggleButton {
+  background: none;
+  border: none;
+  font-size: 1.2rem;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+  color: var(--foreground);
+}
+
+.toggleButton:hover {
+  background: var(--gray-alpha-200);
+}
+
+.unrankedContent {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: calc(100vh - 140px);
+  overflow-y: auto;
+}
+
+.closed .unrankedContent {
+  padding: 8px;
+}
+
+.emptyUnranked {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
+  color: rgba(var(--gray-rgb), 0.5);
+  font-style: italic;
+  text-align: center;
+  border: 2px dashed rgba(var(--gray-rgb), 0.2);
+  border-radius: 8px;
+  min-height: 80px;
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
+.closed .emptyUnranked {
+  padding: 12px 4px;
+  font-size: 0.7rem;
+  min-height: 40px;
+}
+
+/* Adapter les cartes d'anime dans la sidebar */
+.unrankedContent .itemCard {
+  width: 100% !important;
+  margin: 0;
+}
+
+.closed .unrankedContent .itemCard {
+  width: 30px !important;
+  height: 40px !important;
+}
+
+/* Panneau d'aperçu fixe */
+.previewPanel {
+  position: fixed;
+  top: 50%;
+  right: 0;
+  transform: translateY(-50%);
+  background: var(--background);
+  border: 2px solid var(--gray-alpha-200);
+  border-right: none;
+  border-radius: 12px 0 0 12px;
+  box-shadow: -4px 0 16px rgba(0, 0, 0, 0.1);
+  z-index: 1000;
+  transition: all 0.3s ease;
+  max-height: 80vh;
+  overflow: hidden;
+}
+
+.previewClosed {
+  width: 30px;
+}
+
+.previewOpen {
+  width: 180px;
+}
+
+.previewToggle {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  transform: translateY(-50%);
+  width: 30px;
+  height: 60px;
+  background: #667eea;
+  color: white;
+  border: none;
+  border-radius: 12px 0 0 12px;
+  font-size: 1.5rem;
+  font-weight: bold;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.previewToggle:hover {
+  background: #5a67d8;
+  transform: translateY(-50%) scale(1.05);
+}
+
+.previewContent {
+  padding: 20px 10px 15px 30px;
+  height: 100%;
+  overflow-y: auto;
+}
+
+.previewHeader {
+  margin-bottom: 15px;
+  text-align: center;
+}
+
+.previewTitle {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--foreground);
+  display: block;
+  margin-bottom: 5px;
+}
+
+.previewCount {
+  font-size: 0.8rem;
+  color: rgba(var(--gray-rgb), 0.7);
+  background: var(--gray-alpha-100);
+  padding: 2px 8px;
+  border-radius: 12px;
+}
+
+.previewAnime {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+/* Agrandir la carte d'anime dans le panneau de prévisualisation */
+.previewAnime .card {
+  transform: scale(1.3);
+  margin: 10px; /* Ajouter de la marge pour éviter la coupure */
+}
+
+.animeInfo {
+  width: 100%;
+  padding: 8px;
+  background: var(--gray-alpha-100);
+  border-radius: 8px;
+  font-size: 0.8rem;
+  line-height: 1.3;
+  text-align: center;
+}
+
+.animeTitle {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--foreground);
+  margin: 0 0 4px 0;
+  word-wrap: break-word;
+  line-height: 1.2;
+}
+
+.animeYear {
+  font-size: 0.8rem;
+  color: rgba(var(--gray-rgb), 0.8);
+  margin: 0;
+}
+
+/* Responsive pour le panneau d'aperçu */
+@media (max-width: 768px) {
+  .previewPanel {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    top: auto;
+    transform: none;
+    border-radius: 12px;
+    border: 2px solid var(--gray-alpha-200);
+    max-height: 300px;
+  }
+
+  .previewClosed {
+    width: 50px;
+    height: 50px;
+  }
+
+  .previewOpen {
+    width: 160px;
+    height: auto;
+    max-height: 350px;
+  }
+
+  .previewToggle {
+    position: relative;
+    top: 0;
+    left: 0;
+    transform: none;
+    width: 100%;
+    height: 50px;
+    border-radius: 12px;
+    font-size: 1.2rem;
+  }
+
+  .previewContent {
+    padding: 15px;
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "name": "tierlist-maker",
+  "version": "1.7",
+  "private": true,
+  "scripts": {
+    "dev": "node server.js",
+    "dev:next": "next dev --turbopack",
+    "build": "next build",
+    "start": "NODE_ENV=production node server.js",
+    "lint": "next lint",
+    "pm2:start": "pm2 start ecosystem.config.js --env production",
+    "pm2:stop": "pm2 stop tierlist-maker",
+    "pm2:restart": "pm2 restart tierlist-maker",
+    "pm2:reload": "pm2 reload tierlist-maker",
+    "pm2:delete": "pm2 delete tierlist-maker",
+    "pm2:logs": "pm2 logs tierlist-maker",
+    "pm2:monit": "pm2 monit",
+    "pm2:status": "pm2 status",
+    "deploy": "npm run build && npm run pm2:start",
+    "redeploy": "npm run build && npm run pm2:reload"
+  },
+  "dependencies": {
+    "cheerio": "^1.1.2",
+    "next": "15.4.6",
+    "react": "19.1.0",
+    "react-dom": "19.1.0",
+    "socket.io": "^4.8.1",
+    "socket.io-client": "^4.8.1",
+    "sqlite3": "^5.1.7"
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "^3",
+    "eslint": "^9",
+    "eslint-config-next": "15.4.6"
+  }
+}

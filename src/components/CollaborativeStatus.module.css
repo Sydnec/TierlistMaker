@@ -1,0 +1,62 @@
+.status {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  background: var(--background);
+  border: 1px solid var(--gray-alpha-200);
+  border-radius: 20px;
+  padding: 8px 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+}
+
+.indicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  animation: pulse 3s infinite;
+}
+
+.indicator.connected {
+  background: #4caf50;
+}
+
+.indicator.disconnected {
+  background: #f44336;
+}
+
+.userCount {
+  color: var(--foreground);
+  font-weight: 500;
+  font-size: 0.8rem;
+  min-width: 12px;
+  text-align: center;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.6;
+  }
+}
+
+@media (max-width: 768px) {
+  .status {
+    top: 10px;
+    right: 10px;
+    padding: 6px 10px;
+    font-size: 0.75rem;
+  }
+  
+  .indicator {
+    width: 6px;
+    height: 6px;
+  }
+}
