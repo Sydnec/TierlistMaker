@@ -29,7 +29,7 @@ const loadFromLocalStorage = () => {
   };
 };
 
-export function useCollaborativeState() {
+export function useCollaborativeState(tierlistId) {
   const [mounted, setMounted] = useState(false);
   const [socket, setSocket] = useState(null);
   const [isConnected, setIsConnected] = useState(false);
@@ -43,6 +43,7 @@ export function useCollaborativeState() {
 
   const stateRef = useRef(collaborativeState);
   const listenersRef = useRef({});
+  const tierlistIdRef = useRef(tierlistId);
 
   // Charge l'état depuis localStorage au montage
   useEffect(() => {
@@ -67,6 +68,17 @@ export function useCollaborativeState() {
     stateRef.current = collaborativeState;
   }, [collaborativeState]);
 
+  // Gérer les changements de tierlistId
+  useEffect(() => {
+    tierlistIdRef.current = tierlistId;
+
+    // Si on est déjà connecté et qu'on change de tierlist, rejoindre la nouvelle
+    if (socket && isConnected && tierlistId) {
+      console.log(`Changement de tierlist vers: ${tierlistId}`);
+      socket.emit("join-tierlist", tierlistId);
+    }
+  }, [tierlistId, socket, isConnected]);
+
   useEffect(() => {
     // Ne se connecte que côté client après montage
     if (!mounted) return;
@@ -87,6 +99,12 @@ export function useCollaborativeState() {
     socketInstance.on("connect", () => {
       console.log("Connecté au serveur collaboratif");
       setIsConnected(true);
+
+      // Rejoindre la tierlist spécifique si un ID est fourni
+      if (tierlistIdRef.current) {
+        console.log(`Rejoint la tierlist: ${tierlistIdRef.current}`);
+        socketInstance.emit("join-tierlist", tierlistIdRef.current);
+      }
     });
 
     socketInstance.on("disconnect", (reason) => {
@@ -102,6 +120,17 @@ export function useCollaborativeState() {
     // Réception de l'état initial
     socketInstance.on("initial-state", (state) => {
       console.log("État initial reçu:", state);
+      setCollaborativeState({
+        items: state.items || [],
+        tierAssignments: state.tierAssignments || {},
+        tiers: state.tiers || [],
+        tierOrders: state.tierOrders || {},
+      });
+    });
+
+    // Réception de l'état spécifique à la tierlist
+    socketInstance.on("tierlist-state", (state) => {
+      console.log("État de la tierlist reçu:", state);
       setCollaborativeState({
         items: state.items || [],
         tierAssignments: state.tierAssignments || {},
@@ -288,33 +317,47 @@ export function useCollaborativeState() {
 
   // Fonctions pour émettre des événements
   const emitItemAdd = (item) => {
-    if (socket) {
-      socket.emit("item-add", item);
+    if (socket && tierlistIdRef.current) {
+      socket.emit("item-add", { ...item, tierlistId: tierlistIdRef.current });
     }
   };
 
   const emitItemMove = (itemId, tierId, position = 0) => {
-    if (socket) {
-      socket.emit("item-move", { itemId, tierId, position });
+    if (socket && tierlistIdRef.current) {
+      socket.emit("item-move", {
+        itemId,
+        tierId,
+        position,
+        tierlistId: tierlistIdRef.current
+      });
     }
   };
 
   const emitTiersUpdate = (tiers) => {
-    if (socket) {
-      socket.emit("tiers-update", tiers);
+    if (socket && tierlistIdRef.current) {
+      socket.emit("tiers-update", {
+        tiers,
+        tierlistId: tierlistIdRef.current
+      });
     }
   };
 
   const emitBulkImport = (items) => {
-    if (socket) {
-      socket.emit("bulk-import", items);
+    if (socket && tierlistIdRef.current) {
+      socket.emit("bulk-import", {
+        items,
+        tierlistId: tierlistIdRef.current
+      });
     }
   };
 
   const emitItemDelete = (itemId) => {
     console.log("🔥 Émission événement item-delete:", itemId);
-    if (socket) {
-      socket.emit("item-delete", itemId);
+    if (socket && tierlistIdRef.current) {
+      socket.emit("item-delete", {
+        itemId,
+        tierlistId: tierlistIdRef.current
+      });
       console.log("✅ Événement item-delete émis");
     } else {
       console.error("❌ Socket non connecté pour la suppression");
@@ -323,8 +366,11 @@ export function useCollaborativeState() {
 
   const emitItemUpdate = (updatedItem) => {
     console.log("🔄 Émission événement item-update:", updatedItem.name);
-    if (socket) {
-      socket.emit("item-update", updatedItem);
+    if (socket && tierlistIdRef.current) {
+      socket.emit("item-update", {
+        ...updatedItem,
+        tierlistId: tierlistIdRef.current
+      });
       console.log("✅ Événement item-update émis");
     } else {
       console.error("❌ Socket non connecté pour la mise à jour");
@@ -332,8 +378,8 @@ export function useCollaborativeState() {
   };
 
   const requestSync = () => {
-    if (socket) {
-      socket.emit("request-sync");
+    if (socket && tierlistIdRef.current) {
+      socket.emit("request-sync", { tierlistId: tierlistIdRef.current });
     }
   };
 

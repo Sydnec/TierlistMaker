@@ -42,34 +42,37 @@ async function findExistingFileByHash(buffer, imagesDir) {
 }
 
 // Fonction pour détecter les doublons potentiels en base de données
-async function checkForDuplicates(itemData, db) {
-  try {
-    const allItems = await db.getAllItems();
-    
-    const exactDuplicate = allItems.find(item => 
-      item.name === itemData.name && item.image === itemData.image
-    );
-    
-    const partialDuplicate = allItems.find(item => 
-      (item.name === itemData.name || item.image === itemData.image) &&
-      !(item.name === itemData.name && item.image === itemData.image)
-    );
-    
-    return {
-      exactDuplicate,
-      partialDuplicate,
-      duplicateType: exactDuplicate ? 'exact' : partialDuplicate ? 'partial' : 'none'
-    };
-  } catch (error) {
-    console.error('Erreur lors de la vérification des doublons:', error);
-    return { duplicateType: 'none' };
-  }
+async function checkForDuplicates(itemData, db, tierlistId) {
+    try {
+        const allItems = tierlistId ? await db.getItemsByTierlist(tierlistId) : await db.getAllItems();
+
+        const exactDuplicate = allItems.find(item =>
+            item.name === itemData.name && item.image === itemData.image
+        );
+
+        const partialDuplicate = allItems.find(item =>
+            (item.name === itemData.name || item.image === itemData.image) &&
+            !(item.name === itemData.name && item.image === itemData.image)
+        );
+
+        return {
+            exactDuplicate,
+            partialDuplicate,
+            duplicateType: exactDuplicate ? 'exact' : partialDuplicate ? 'partial' : 'none'
+        };
+    } catch (error) {
+        console.error('Erreur lors de la vérification des doublons:', error);
+        return { duplicateType: 'none' };
+    }
 }
 
 export async function POST(request) {
     try {
         const formData = await request.formData();
         const itemsData = JSON.parse(formData.get('items'));
+        const tierlistId = formData.get('tierlist_id'); // Nouveau paramètre
+
+        console.log(`📤 Upload pour tierlist: ${tierlistId || 'global'}`);
 
         const db = Database.getInstance();
         const savedItems = [];
@@ -126,6 +129,7 @@ export async function POST(request) {
             // Créer l'objet item avec le bon format
             const newItem = {
                 id: `item-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                tierlist_id: tierlistId, // Associer à la tierlist
                 name: itemData.name,
                 image: finalImagePath,
                 description: itemData.description || null,
@@ -133,8 +137,8 @@ export async function POST(request) {
                 updated_at: itemData.updated_at
             };
 
-            // Vérifier les doublons
-            const duplicateCheck = await checkForDuplicates(newItem, db);
+            // Vérifier les doublons (dans le contexte de cette tierlist)
+            const duplicateCheck = await checkForDuplicates(newItem, db, tierlistId);
 
             if (duplicateCheck.duplicateType === 'exact') {
                 // Doublon exact : ne pas ajouter

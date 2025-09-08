@@ -14,59 +14,71 @@ const handler = app.getRequestHandler();
 // Initialiser la base de données (singleton)
 const db = Database.getInstance();
 
-// État collaboratif en mémoire (synchronisé avec la DB)
-let collaborativeState = {
-  items: [],
-  tierAssignments: {},
-  tiers: [],
-  tierOrders: {},
-  connectedUsers: 0,
-  lastModified: Date.now(),
-};
+// État collaboratif en mémoire par tierlist (synchronisé avec la DB)
+let tierlistRooms = new Map(); // Map<tierlistId, roomState>
 
-// Fonction pour charger l'état depuis la base de données
-async function loadStateFromDB() {
+// Fonction pour obtenir ou créer une room
+function getTierlistRoom(tierlistId) {
+  if (!tierlistRooms.has(tierlistId)) {
+    tierlistRooms.set(tierlistId, {
+      items: [],
+      tierAssignments: {},
+      tiers: [],
+      tierOrders: {},
+      connectedUsers: 0,
+      lastModified: Date.now(),
+    });
+  }
+  return tierlistRooms.get(tierlistId);
+}
+
+// Fonction pour charger l'état d'une tierlist depuis la base de données
+async function loadTierlistStateFromDB(tierlistId) {
   try {
-    console.time('Chargement complet état BDD');
-    const state = await db.getFullState();
-    const currentConnectedUsers = collaborativeState.connectedUsers; // Conserver le nombre d'utilisateurs connectés
-    collaborativeState = {
+    console.time(`Chargement état tierlist ${tierlistId}`);
+    const state = await db.getFullState(tierlistId);
+    const room = getTierlistRoom(tierlistId);
+
+    // Conserver le nombre d'utilisateurs connectés
+    const currentConnectedUsers = room.connectedUsers;
+
+    Object.assign(room, {
       ...state,
       connectedUsers: currentConnectedUsers,
-    };
+    });
+
     console.log(
-      `État chargé depuis la base de données: ${state.items.length} items, ${state.tiers.length} tiers`
+      `État tierlist ${tierlistId} chargé: ${state.items.length} items, ${state.tiers.length} tiers`
     );
-    console.timeEnd('Chargement complet état BDD');
+    console.timeEnd(`Chargement état tierlist ${tierlistId}`);
   } catch (error) {
     console.error(
-      "Erreur lors du chargement depuis la base de données:",
+      `Erreur lors du chargement de la tierlist ${tierlistId}:`,
       error
     );
   }
 }
 
-// Fonction publique pour recharger l'état (utilisée par l'API d'upload)
-async function reloadCollaborativeState() {
-  console.log("🔄 Rechargement de l'état collaboratif...");
-  await loadStateFromDB();
-  return collaborativeState;
+// Fonction publique pour recharger l'état d'une tierlist (utilisée par l'API d'upload)
+async function reloadTierlistState(tierlistId) {
+  console.log(`🔄 Rechargement de l'état de la tierlist ${tierlistId}...`);
+  await loadTierlistStateFromDB(tierlistId);
+  return getTierlistRoom(tierlistId);
 }
 
 app.prepare().then(async () => {
-  // Charger l'état depuis la base de données au démarrage
-  await loadStateFromDB();
+  // Les tierlists seront chargées à la demande
   const httpServer = createServer((req, res) => {
     // Servir les fichiers statiques depuis /public
     if (req.url && req.url.startsWith('/images/')) {
       const path = require('path');
       const fs = require('fs');
-      
+
       const filePath = path.join(process.cwd(), 'public', req.url);
-      
+
       fs.access(filePath, fs.constants.F_OK, (err) => {
         if (err) {
-          res.writeHead(404, {'Content-Type': 'text/plain'});
+          res.writeHead(404, { 'Content-Type': 'text/plain' });
           res.end('Image not found');
         } else {
           const ext = path.extname(filePath).toLowerCase();
@@ -77,15 +89,15 @@ app.prepare().then(async () => {
             '.gif': 'image/gif',
             '.svg': 'image/svg+xml'
           };
-          
+
           const contentType = mimeTypes[ext] || 'application/octet-stream';
-          
+
           fs.readFile(filePath, (readErr, data) => {
             if (readErr) {
-              res.writeHead(500, {'Content-Type': 'text/plain'});
+              res.writeHead(500, { 'Content-Type': 'text/plain' });
               res.end('Internal server error');
             } else {
-              res.writeHead(200, {'Content-Type': contentType});
+              res.writeHead(200, { 'Content-Type': contentType });
               res.end(data);
             }
           });
@@ -106,27 +118,59 @@ app.prepare().then(async () => {
 
   // Gestion des connexions WebSocket
   io.on("connection", (socket) => {
-    collaborativeState.connectedUsers++;
-    console.log(
-      `Utilisateur connecté: ${socket.id} (Total: ${collaborativeState.connectedUsers})`
-    );
+    console.log(`Utilisateur connecté: ${socket.id}`);
 
-    // Envoie l'état initial au nouveau client
-    socket.emit("initial-state", collaborativeState);
+    // Rejoindre le hub global (pour les notifications de nouvelles tierlists)
+    socket.on("join-hub", () => {
+      socket.join("global-hub");
+      console.log(`Utilisateur ${socket.id} a rejoint le hub global`);
+    });
 
-    // Notifie tous les clients du nombre d'utilisateurs connectés
-    io.emit("users-count", collaborativeState.connectedUsers);
+    // Quitter le hub global
+    socket.on("leave-hub", () => {
+      socket.leave("global-hub");
+      console.log(`Utilisateur ${socket.id} a quitté le hub global`);
+    });
+
+    // Rejoindre une tierlist spécifique
+    socket.on("join-tierlist", async (tierlistId) => {
+      socket.tierlistId = tierlistId;
+      socket.join(`tierlist-${tierlistId}`);
+
+      const room = getTierlistRoom(tierlistId);
+      room.connectedUsers++;
+
+      // Charger l'état de la tierlist si pas encore fait
+      if (room.items.length === 0) {
+        await loadTierlistStateFromDB(tierlistId);
+      }
+
+      console.log(
+        `Utilisateur ${socket.id} a rejoint tierlist ${tierlistId} (Total: ${room.connectedUsers})`
+      );
+
+      // Envoie l'état initial au nouveau client
+      socket.emit("initial-state", room);
+
+      // Notifie tous les clients de cette tierlist du nombre d'utilisateurs connectés
+      io.to(`tierlist-${tierlistId}`).emit("users-count", room.connectedUsers);
+    });
 
     // Ajout d'un item
     socket.on("item-add", async (itemData) => {
-      // S'assurer que les champs correspondent au nouveau schéma (name au lieu de title)
+      if (!socket.tierlistId) return;
+
+      const room = getTierlistRoom(socket.tierlistId);
+
+      // S'assurer que les champs correspondent au nouveau schéma
       if (itemData.title && !itemData.name) {
         itemData.name = itemData.title;
       }
-      
-      // Nettoyer les anciens champs si présents
+
+      // Nettoyer les données
       const cleanedItemData = {
         id: itemData.id,
+        tierlist_id: socket.tierlistId,
         name: itemData.name,
         image: itemData.image || null,
         description: itemData.description || null,
@@ -135,81 +179,57 @@ app.prepare().then(async () => {
       };
 
       console.log(
-        "📥 Item ajouté:",
+        `📥 Item ajouté dans tierlist ${socket.tierlistId}:`,
         cleanedItemData.name,
         "ID:",
         cleanedItemData.id
       );
-      console.log("📊 État avant ajout:", {
-        items: collaborativeState.items.length,
-        tierAssignments: Object.keys(collaborativeState.tierAssignments).length,
-      });
 
       try {
-        // Vérifie si l'item existe déjà (nom ET image identiques = vrai doublon)
-        const existingIndex = collaborativeState.items.findIndex((item) => {
-          // Compare par ID uniquement pour éviter les conflits
+        // Vérifie si l'item existe déjà dans cette tierlist
+        const existingIndex = room.items.findIndex((item) => {
           if (item.id && cleanedItemData.id && item.id === cleanedItemData.id) {
             return true;
           }
-          // Compare par nom ET image (vrai doublon seulement si les deux sont identiques)
           if (item.name === cleanedItemData.name && item.image === cleanedItemData.image) {
             return true;
           }
           return false;
         });
 
-        console.log("🔍 Vérification existence - Index trouvé:", existingIndex);
-        if (existingIndex !== -1) {
-          const existingItem = collaborativeState.items[existingIndex];
-          if (existingItem.id === cleanedItemData.id) {
-            console.log("⚠️ Item déjà existant avec même ID:", existingItem.name);
-          } else {
-            console.log("⚠️ Item déjà existant avec même nom + image:", existingItem.name);
-          }
-        }
-
         if (existingIndex === -1) {
           // Assigne un ID unique si nécessaire
           if (!cleanedItemData.id) {
             cleanedItemData.id = `item-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-            console.log("🆔 ID assigné:", cleanedItemData.id);
           }
 
           console.log("💾 Sauvegarde en base de données...");
-          // Sauvegarde en base de données
           await db.addItem(cleanedItemData);
           console.log("✅ Sauvegarde en base de données réussie");
 
-          // Met à jour l'état en mémoire
-          collaborativeState.items.push(cleanedItemData);
-          collaborativeState.lastModified = Date.now();
+          // Met à jour l'état en mémoire de la room
+          room.items.push(cleanedItemData);
+          room.lastModified = Date.now();
 
-          console.log("📊 État après ajout:", {
-            items: collaborativeState.items.length,
-            tierAssignments: Object.keys(collaborativeState.tierAssignments)
-              .length,
-          });
-
-          console.log(
-            "📡 Émission de l'événement item-added vers tous les clients"
-          );
-          // Notifie tous les clients
-          io.emit("item-added", cleanedItemData);
+          // Diffuse à tous les clients de cette tierlist
+          io.to(`tierlist-${socket.tierlistId}`).emit("item-added", cleanedItemData);
         } else {
-          console.log("❌ Item non ajouté car il existe déjà");
+          console.log("⚠️ Item déjà existant dans cette tierlist");
         }
       } catch (error) {
-        console.error("❌ Erreur lors de l'ajout de l'item:", error);
-        socket.emit("error", { message: "Erreur lors de l'ajout de l'item" });
+        console.error("❌ Erreur lors de l'ajout d'item:", error);
       }
     });
 
     // Déplacement d'un item vers un tier
     socket.on("item-move", async (data) => {
+      if (!socket.tierlistId) return;
+
       const { itemId, tierId, position } = data;
+      const room = getTierlistRoom(socket.tierlistId);
+
       console.log(
-        `Item ${itemId} déplacé vers tier ${tierId} à la position ${position}`
+        `Item ${itemId} déplacé vers tier ${tierId} dans tierlist ${socket.tierlistId}`
       );
 
       try {
@@ -218,318 +238,113 @@ app.prepare().then(async () => {
           await db.removeItemFromTier(itemId);
         }
 
-        // Met à jour l'état en mémoire
+        // Met à jour l'état en mémoire de la room
         if (tierId === "unranked") {
-          delete collaborativeState.tierAssignments[itemId];
+          delete room.tierAssignments[itemId];
         } else {
-          collaborativeState.tierAssignments[itemId] = tierId;
+          room.tierAssignments[itemId] = tierId;
         }
 
-        // Met à jour l'ordre dans le tier
-        if (!collaborativeState.tierOrders[tierId]) {
-          collaborativeState.tierOrders[tierId] = [];
-        }
+        room.lastModified = Date.now();
 
-        // Retire l'item de tous les autres tiers
-        Object.keys(collaborativeState.tierOrders).forEach((tier) => {
-          if (tier !== tierId) {
-            const index = collaborativeState.tierOrders[tier].indexOf(itemId);
-            if (index !== -1) {
-              collaborativeState.tierOrders[tier].splice(index, 1);
-            }
-          }
-        });
-
-        // Ajoute à la position spécifiée dans le nouveau tier
-        if (tierId !== "unranked") {
-          const tierOrder = collaborativeState.tierOrders[tierId];
-          const currentIndex = tierOrder.indexOf(itemId);
-          if (currentIndex !== -1) {
-            tierOrder.splice(currentIndex, 1);
-          }
-
-          const insertPosition = Math.min(position || 0, tierOrder.length);
-          tierOrder.splice(insertPosition, 0, itemId);
-
-          // Met à jour la position de tous les items du tier dans la BDD (en parallèle)
-          await Promise.all(
-            tierOrder.map((id, i) => db.assignItemToTier(id, tierId, i))
-          );
-        }
-
-        collaborativeState.lastModified = Date.now();
-
-        // Notifie tous les autres clients (pas l'expéditeur)
-        socket.broadcast.emit("item-moved", data);
+        // Notifie tous les clients de cette tierlist
+        io.to(`tierlist-${socket.tierlistId}`).emit("item-moved", data);
       } catch (error) {
-        console.error("Erreur lors du déplacement de l'item:", error);
-        socket.emit("error", {
-          message: "Erreur lors du déplacement de l'item",
-        });
-      }
-    });
-
-    // Modification des tiers personnalisés
-    socket.on("tiers-update", async (newTiers) => {
-      console.log("Tiers mis à jour:", newTiers.length);
-
-      try {
-        // Sauvegarde en base de données
-        await db.updateTiers(newTiers);
-
-        // Met à jour l'état en mémoire
-        collaborativeState.tiers = newTiers;
-        collaborativeState.lastModified = Date.now();
-
-        // Notifie tous les autres clients
-        socket.broadcast.emit("tiers-updated", newTiers);
-      } catch (error) {
-        console.error("Erreur lors de la mise à jour des tiers:", error);
-        socket.emit("error", {
-          message: "Erreur lors de la mise à jour des tiers",
-        });
-      }
-    });
-
-    // Import en lot depuis MAL
-    socket.on("bulk-import", async (items) => {
-      // Adapter chaque item au schéma SQL
-      items = items.map(itemData => ({
-        ...itemData,
-        title: itemData.title || itemData.title_english || itemData.title_original,
-        title_english: itemData.title_english || null,
-        title_original: itemData.title_original || null,
-      }));
-
-      console.log(`Import en lot de ${items.length} items`);
-
-      try {
-        let addedCount = 0;
-        const addedItems = [];
-
-        for (const itemData of items) {
-          console.log(
-            `🔄 Processing item ${addedCount + 1}/${items.length}:`,
-            itemData.title
-          );
-          console.log("📋 Item data:", {
-            id: itemData.id,
-            mal_id: itemData.mal_id,
-            title: itemData.title,
-          });
-
-          const existingIndex = collaborativeState.items.findIndex((item) => {
-            // Compare by ID if both have valid IDs (and not undefined/null)
-            if (
-              item.id &&
-              itemData.id &&
-              item.id !== undefined &&
-              itemData.id !== undefined &&
-              item.id === itemData.id
-            ) {
-              return true;
-            }
-            // Compare by mal_id if both have valid mal_ids (not undefined/null/NaN)
-            if (
-              item.mal_id &&
-              itemData.mal_id &&
-              item.mal_id !== undefined &&
-              itemData.mal_id !== undefined &&
-              !isNaN(item.mal_id) &&
-              !isNaN(itemData.mal_id) &&
-              item.mal_id === itemData.mal_id
-            ) {
-              return true;
-            }
-            return false;
-          });
-
-          console.log("🔍 Existing index found:", existingIndex);
-
-          if (existingIndex === -1) {
-            if (!itemData.id) {
-              itemData.id =
-                itemData.mal_id || (Date.now() + addedCount).toString();
-            }
-
-            console.log("💾 Adding to database:", itemData.title);
-            // Sauvegarde en base de données
-            await db.addItem(itemData);
-
-            // Met à jour l'état en mémoire
-            collaborativeState.items.push(itemData);
-            addedItems.push(itemData);
-            addedCount++;
-            console.log("✅ Successfully added:", itemData.title);
-          } else {
-            console.log("⚠️ Item already exists:", itemData.title);
-          }
-        }
-
-        if (addedCount > 0) {
-          collaborativeState.lastModified = Date.now();
-          console.log(
-            `📡 Emitting bulk-imported event with ${addedItems.length} items`
-          );
-          io.emit("bulk-imported", addedItems);
-        }
-
-        console.log(
-          `✅ Bulk import completed: ${addedCount} items added out of ${items.length} processed`
-        );
-      } catch (error) {
-        console.error("Erreur lors de l'import en lot:", error);
-        socket.emit("error", { message: "Erreur lors de l'import en lot" });
+        console.error("❌ Erreur lors du déplacement de l'item:", error);
       }
     });
 
     // Suppression d'un item
     socket.on("item-delete", async (itemId) => {
-      console.log("🗑️ Suppression d élément:", itemId);
-      console.log("📊 État avant suppression:", {
-        items: collaborativeState.items.length,
-        tierAssignments: Object.keys(collaborativeState.tierAssignments).length,
-      });
+      if (!socket.tierlistId) return;
+
+      const room = getTierlistRoom(socket.tierlistId);
+
+      console.log(`Suppression de l'item ${itemId} dans tierlist ${socket.tierlistId}`);
 
       try {
-        // Supprime de la base de données (item + affectations)
-        console.log("💾 Suppression en base de données...");
-        const result = await db.deleteItem(itemId);
-        console.log("✅ Suppression en base de données réussie:", result);
+        await db.deleteItem(itemId);
 
-        // Si la suppression a réussi, mettre à jour l'état en mémoire
-        if (result.itemChanges > 0) {
-          // Trouver l'item à supprimer dans l'état (par ID ou mal_id)
-          const itemToRemove = collaborativeState.items.find(
-            (item) => item.id === itemId || item.mal_id === itemId
-          );
+        // Met à jour l'état en mémoire de la room
+        room.items = room.items.filter((item) => item.id !== itemId);
+        delete room.tierAssignments[itemId];
+        room.lastModified = Date.now();
 
-          if (itemToRemove) {
-            console.log(
-              "🎯 Item trouvé dans l'état:",
-              itemToRemove.title,
-              "ID:",
-              itemToRemove.id
-            );
-
-            // Supprime de l'état en mémoire en utilisant le bon ID
-            const realId = itemToRemove.id;
-            collaborativeState.items = collaborativeState.items.filter(
-              (item) => item.id !== realId
-            );
-            delete collaborativeState.tierAssignments[realId];
-
-            // Retire de tous les ordres de tiers
-            Object.keys(collaborativeState.tierOrders).forEach((tierId) => {
-              if (collaborativeState.tierOrders[tierId]) {
-                const index =
-                  collaborativeState.tierOrders[tierId].indexOf(realId);
-                if (index !== -1) {
-                  collaborativeState.tierOrders[tierId].splice(index, 1);
-                  console.log(`🔄 Retiré de tier ${tierId}`);
-                }
-              }
-            });
-
-            collaborativeState.lastModified = Date.now();
-
-            console.log(
-              "📡 Émission de l'événement item-deleted vers les autres clients avec ID:",
-              realId
-            );
-            // Notifie tous les autres clients (pas l'expéditeur) avec le vrai ID
-            socket.broadcast.emit("item-deleted", realId);
-          } else {
-            console.log("⚠️ Item non trouvé dans l'état en mémoire");
-          }
-        } else {
-          console.log("⚠️ Aucun item supprimé de la base de données");
-        }
-
-        console.log("📊 État après suppression:", {
-          items: collaborativeState.items.length,
-          tierAssignments: Object.keys(collaborativeState.tierAssignments)
-            .length,
-        });
+        // Notifie tous les clients de cette tierlist
+        io.to(`tierlist-${socket.tierlistId}`).emit("item-deleted", itemId);
       } catch (error) {
         console.error("❌ Erreur lors de la suppression de l'item:", error);
-        socket.emit("error", {
-          message: "Erreur lors de la suppression de l'item",
-        });
       }
     });
 
-    // Mise à jour d'un item existant (pour les images enrichies)
+    // Mise à jour d'un item
     socket.on("item-update", async (updatedItem) => {
-      // Adapter au schéma SQL
-      updatedItem = {
-        ...updatedItem,
-        title: updatedItem.title || updatedItem.title_english || updatedItem.title_original,
-        title_english: updatedItem.title_english || null,
-        title_original: updatedItem.title_original || null,
-      };
+      if (!socket.tierlistId) return;
 
-      console.log(
-        "🔄 Mise à jour d'item:",
-        updatedItem.title,
-        "avec image:",
-        updatedItem.image
-      );
+      const room = getTierlistRoom(socket.tierlistId);
+
+      console.log(`Mise à jour de l'item ${updatedItem.id} dans tierlist ${socket.tierlistId}`);
 
       try {
-        // Trouve l'item existant dans l'état
-        const existingIndex = collaborativeState.items.findIndex((item) => {
-          return (
-            (item.id && updatedItem.id && item.id === updatedItem.id) ||
-            (item.mal_id &&
-              updatedItem.mal_id &&
-              item.mal_id === updatedItem.mal_id)
-          );
-        });
+        await db.updateItem(updatedItem.id, updatedItem);
 
-        if (existingIndex !== -1) {
-          // Met à jour en base de données
-          await db.addItem(updatedItem); // addItem fait un INSERT OR REPLACE
-
-          // Met à jour l'état en mémoire
-          collaborativeState.items[existingIndex] = {
-            ...collaborativeState.items[existingIndex],
-            ...updatedItem,
-          };
-
-          collaborativeState.lastModified = Date.now();
-
-          console.log(`✅ Item mis à jour: ${updatedItem.title}`);
-
-          // Notifie tous les clients de la mise à jour
-          io.emit("item-updated", updatedItem);
-        } else {
-          console.log(
-            `⚠️ Item non trouvé pour mise à jour: ${updatedItem.title}`
-          );
+        // Met à jour l'état en mémoire de la room
+        const itemIndex = room.items.findIndex((item) => item.id === updatedItem.id);
+        if (itemIndex !== -1) {
+          room.items[itemIndex] = { ...room.items[itemIndex], ...updatedItem };
+          room.lastModified = Date.now();
         }
+
+        // Notifie tous les clients de cette tierlist
+        io.to(`tierlist-${socket.tierlistId}`).emit("item-updated", updatedItem);
       } catch (error) {
         console.error("❌ Erreur lors de la mise à jour de l'item:", error);
-        socket.emit("error", {
-          message: "Erreur lors de la mise à jour de l'item",
-        });
       }
     });
 
-    // Synchronisation d'urgence (si un client détecte une désynchronisation)
-    socket.on("request-sync", () => {
-      socket.emit("full-sync", collaborativeState);
+    // Mise à jour des tiers
+    socket.on("tiers-update", async (newTiers) => {
+      if (!socket.tierlistId) return;
+
+      const room = getTierlistRoom(socket.tierlistId);
+
+      console.log(`Mise à jour des tiers dans tierlist ${socket.tierlistId}`);
+
+      try {
+        // Adapter les tiers pour inclure le tierlist_id
+        const tiersWithTierlistId = newTiers.map(tier => ({
+          ...tier,
+          tierlist_id: socket.tierlistId
+        }));
+
+        await db.updateTiers(tiersWithTierlistId);
+
+        // Met à jour l'état en mémoire de la room
+        room.tiers = newTiers;
+        room.lastModified = Date.now();
+
+        // Notifie tous les clients de cette tierlist
+        io.to(`tierlist-${socket.tierlistId}`).emit("tiers-updated", newTiers);
+      } catch (error) {
+        console.error("❌ Erreur lors de la mise à jour des tiers:", error);
+      }
     });
 
-    // Déconnexion
+    // Gestion de la déconnexion
     socket.on("disconnect", () => {
-      collaborativeState.connectedUsers--;
-      console.log(
-        `Utilisateur déconnecté: ${socket.id} (Total: ${collaborativeState.connectedUsers})`
-      );
+      if (socket.tierlistId) {
+        const room = getTierlistRoom(socket.tierlistId);
+        room.connectedUsers--;
 
-      // Notifie les clients restants
-      io.emit("users-count", collaborativeState.connectedUsers);
+        console.log(
+          `Utilisateur ${socket.id} déconnecté de tierlist ${socket.tierlistId} (Total: ${room.connectedUsers})`
+        );
+
+        // Notifie les clients restants de cette tierlist
+        io.to(`tierlist-${socket.tierlistId}`).emit("users-count", room.connectedUsers);
+      } else {
+        console.log(`Utilisateur ${socket.id} déconnecté`);
+      }
     });
   });
 
@@ -543,17 +358,12 @@ app.prepare().then(async () => {
       console.log(`> Ready on http://${hostname}:${port}`);
       console.log("> Socket.io server running for collaborative features");
     });
+
+  // Exposer la fonction de notification pour les autres parties de l'application
+  global.notifyHubNewTierlist = function (tierlist) {
+    console.log('🔔 Notification hub nouvelle tierlist:', tierlist.name);
+    io.to("global-hub").emit("new-tierlist", tierlist);
+  };
 });
 
-// Gestion de la fermeture propre
-process.on("SIGINT", () => {
-  console.log("Arrêt du serveur...");
-  db.close();
-  process.exit(0);
-});
-
-process.on("SIGTERM", () => {
-  console.log("Arrêt du serveur...");
-  db.close();
-  process.exit(0);
-});
+module.exports = { reloadTierlistState };
