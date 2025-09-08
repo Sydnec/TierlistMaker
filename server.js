@@ -29,9 +29,10 @@ async function loadStateFromDB() {
   try {
     console.time('Chargement complet état BDD');
     const state = await db.getFullState();
+    const currentConnectedUsers = collaborativeState.connectedUsers; // Conserver le nombre d'utilisateurs connectés
     collaborativeState = {
       ...state,
-      connectedUsers: 0,
+      connectedUsers: currentConnectedUsers,
     };
     console.log(
       `État chargé depuis la base de données: ${state.items.length} items, ${state.tiers.length} tiers`
@@ -43,6 +44,13 @@ async function loadStateFromDB() {
       error
     );
   }
+}
+
+// Fonction publique pour recharger l'état (utilisée par l'API d'upload)
+async function reloadCollaborativeState() {
+  console.log("🔄 Rechargement de l'état collaboratif...");
+  await loadStateFromDB();
+  return collaborativeState;
 }
 
 app.prepare().then(async () => {
@@ -138,13 +146,13 @@ app.prepare().then(async () => {
       });
 
       try {
-        // Vérifie si l'item existe déjà
+        // Vérifie si l'item existe déjà (nom ET image identiques = vrai doublon)
         const existingIndex = collaborativeState.items.findIndex((item) => {
-          // Compare par ID
+          // Compare par ID uniquement pour éviter les conflits
           if (item.id && cleanedItemData.id && item.id === cleanedItemData.id) {
             return true;
           }
-          // Compare par nom si même nom et image
+          // Compare par nom ET image (vrai doublon seulement si les deux sont identiques)
           if (item.name === cleanedItemData.name && item.image === cleanedItemData.image) {
             return true;
           }
@@ -153,10 +161,12 @@ app.prepare().then(async () => {
 
         console.log("🔍 Vérification existence - Index trouvé:", existingIndex);
         if (existingIndex !== -1) {
-          console.log(
-            "⚠️ Item déjà existant:",
-            collaborativeState.items[existingIndex].name || collaborativeState.items[existingIndex].title
-          );
+          const existingItem = collaborativeState.items[existingIndex];
+          if (existingItem.id === cleanedItemData.id) {
+            console.log("⚠️ Item déjà existant avec même ID:", existingItem.name);
+          } else {
+            console.log("⚠️ Item déjà existant avec même nom + image:", existingItem.name);
+          }
         }
 
         if (existingIndex === -1) {

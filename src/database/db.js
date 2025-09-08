@@ -290,6 +290,24 @@ class Database {
           );
         });
 
+        // Vérifier si d'autres items utilisent cette image AVANT la suppression
+        let canDeleteImage = false;
+        if (itemData && itemData.image) {
+          const otherItemsUsingImage = await new Promise((res, rej) => {
+            this.db.get(
+              `SELECT COUNT(*) as count FROM items WHERE image = ? AND id != ?`,
+              [itemData.image, itemToDelete],
+              (err, row) => {
+                if (err) rej(err);
+                else res(row.count);
+              }
+            );
+          });
+
+          canDeleteImage = otherItemsUsingImage === 0;
+          console.log(`🔍 Autres items utilisant l'image "${itemData.image}": ${otherItemsUsingImage}`);
+        }
+
         // Supprimer d'abord les affectations aux tiers
         console.log(
           "🗃️ Suppression des affectations de tiers pour:",
@@ -325,20 +343,22 @@ class Database {
         });
         console.log("🗃️ Item supprimé:", itemResult.changes, "lignes");
 
-        // Supprimer l'image associée du système de fichiers
-        if (itemData && itemData.image) {
+        // Supprimer l'image du système de fichiers si elle n'est plus utilisée
+        if (itemData && itemData.image && canDeleteImage) {
           try {
             const fs = require("fs").promises;
             const path = require("path");
             const imagePath = path.join(process.cwd(), "public", itemData.image);
             
-            console.log("🖼️ Suppression de l'image:", imagePath);
+            console.log("🖼️ Suppression de l'image non utilisée:", imagePath);
             await fs.unlink(imagePath);
             console.log("✅ Image supprimée avec succès");
           } catch (imageErr) {
             console.warn("⚠️ Erreur lors de la suppression de l'image:", imageErr.message);
             // Ne pas faire échouer la suppression de l'item si l'image ne peut pas être supprimée
           }
+        } else if (itemData && itemData.image && !canDeleteImage) {
+          console.log(`🔗 Image conservée car utilisée par d'autres items:`, itemData.image);
         }
 
         resolve({
@@ -501,6 +521,56 @@ class Database {
         }
       );
     });
+  }
+
+  // Méthode utilitaire pour nettoyer les images orphelines
+  async cleanupOrphanedImages() {
+    try {
+      const fs = require("fs").promises;
+      const path = require("path");
+      const imagesDir = path.join(process.cwd(), "public", "images");
+      
+      // Récupérer tous les chemins d'images utilisés en base
+      const usedImages = await new Promise((resolve, reject) => {
+        this.db.all(
+          `SELECT DISTINCT image FROM items WHERE image IS NOT NULL`,
+          [],
+          (err, rows) => {
+            if (err) reject(err);
+            else resolve(rows.map(row => row.image));
+          }
+        );
+      });
+
+      console.log(`🧹 ${usedImages.length} images référencées en base de données`);
+
+      try {
+        // Lister tous les fichiers dans le dossier images
+        const files = await fs.readdir(imagesDir);
+        let deletedCount = 0;
+
+        for (const fileName of files) {
+          const relativePath = `images/${fileName}`;
+          
+          // Si l'image n'est pas référencée en base, la supprimer
+          if (!usedImages.includes(relativePath)) {
+            const filePath = path.join(imagesDir, fileName);
+            await fs.unlink(filePath);
+            console.log(`🗑️ Image orpheline supprimée: ${fileName}`);
+            deletedCount++;
+          }
+        }
+
+        console.log(`✅ Nettoyage terminé: ${deletedCount} images orphelines supprimées`);
+        return { deletedCount, usedImagesCount: usedImages.length };
+      } catch (dirErr) {
+        console.log("📁 Dossier images inexistant ou vide");
+        return { deletedCount: 0, usedImagesCount: usedImages.length };
+      }
+    } catch (error) {
+      console.error("❌ Erreur lors du nettoyage des images orphelines:", error);
+      throw error;
+    }
   }
 
   async manualSelect(query) {

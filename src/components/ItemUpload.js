@@ -239,7 +239,33 @@ export default function ItemUpload({ onItemsAdded, existingItems = [] }) {
 
       if (response.ok) {
         const result = await response.json();
-        onItemsAdded(result.items);
+        
+        // Gestion des différents résultats
+        if (result.items && result.items.length > 0) {
+          onItemsAdded(result.items);
+          console.log(`✅ ${result.items.length} items ajoutés avec succès`);
+        }
+
+        // Afficher les avertissements pour les doublons partiels
+        if (result.warnings && result.warnings.length > 0) {
+          console.log(`⚠️ ${result.warnings.length} avertissements de doublons partiels:`);
+          result.warnings.forEach(warning => {
+            console.log(`- ${warning.item.name}: ${warning.reason}`);
+          });
+        }
+
+        // Afficher les éléments ignorés (doublons exacts)
+        if (result.skipped && result.skipped.length > 0) {
+          console.log(`🚫 ${result.skipped.length} items ignorés (doublons exacts):`);
+          result.skipped.forEach(skipped => {
+            console.log(`- ${skipped.item.name}: ${skipped.reason}`);
+          });
+        }
+
+        // Afficher un résumé
+        if (result.summary) {
+          console.log(`📊 Résumé: ${result.summary.added} ajoutés, ${result.summary.skipped} ignorés, ${result.summary.warnings} avertissements sur ${result.summary.total} items`);
+        }
         
         // Nettoyer les URLs créées pour éviter les fuites mémoire
         pendingItems.forEach(item => {
