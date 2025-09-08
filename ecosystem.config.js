@@ -8,11 +8,11 @@ module.exports = {
       exec_mode: 'fork', // 'cluster' si vous voulez plusieurs instances
       env: {
         NODE_ENV: 'development',
-        PORT: 3456
+        PORT: 3003
       },
       env_production: {
         NODE_ENV: 'production',
-        PORT: 3456
+        PORT: 3003
       },
       // Options de monitoring et logs
       log_file: './logs/app.log',

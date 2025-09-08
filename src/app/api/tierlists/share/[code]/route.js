@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-const Database = require("../../../../../../database/db");
+const Database = require("../../../../../database/db");
 
 const db = Database.getInstance();
 
