@@ -10,6 +10,7 @@ export default function ItemUpload({ onItemsAdded, existingItems = [], tierlistI
     const [showDuplicatesModal, setShowDuplicatesModal] = useState(false);
     const [pendingItems, setPendingItems] = useState([]);
     const [duplicateItems, setDuplicateItems] = useState([]);
+    const [isLoading, setIsLoading] = useState(false);
     const fileInputRef = useRef(null);
 
     const handleDragOver = (e) => {
@@ -213,6 +214,7 @@ export default function ItemUpload({ onItemsAdded, existingItems = [], tierlistI
     };
 
     const handleSave = async () => {
+        setIsLoading(true);
         try {
             const formData = new FormData();
 
@@ -287,6 +289,8 @@ export default function ItemUpload({ onItemsAdded, existingItems = [], tierlistI
             }
         } catch (error) {
             console.error('Erreur lors de l\'upload:', error);
+        } finally {
+            setIsLoading(false);
         }
     };
 
@@ -445,11 +449,12 @@ export default function ItemUpload({ onItemsAdded, existingItems = [], tierlistI
                                 Annuler
                             </button>
                             <button
-                                className={styles.saveButton}
+                                className={`${styles.saveButton} ${isLoading ? styles.loading : ''}`}
                                 onClick={handleSave}
-                                disabled={pendingItems.some(item => !item.name.trim())}
+                                disabled={pendingItems.some(item => !item.name.trim()) || isLoading}
+                                style={{ cursor: isLoading ? 'wait' : 'pointer' }}
                             >
-                                Enregistrer ({pendingItems.length})
+                                {isLoading ? '⏳ Enregistrement...' : `Enregistrer (${pendingItems.length})`}
                             </button>
                         </div>
                     </div>

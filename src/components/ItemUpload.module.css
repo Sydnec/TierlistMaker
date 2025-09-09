@@ -341,6 +341,20 @@
   cursor: not-allowed;
 }
 
+/* État de chargement pour le bouton d'enregistrement */
+.saveButton.loading {
+  background: #0056b3;
+  cursor: wait !important;
+  opacity: 0.8;
+  position: relative;
+}
+
+.saveButton.loading:disabled {
+  background: #0056b3 !important;
+  cursor: wait !important;
+  opacity: 0.8;
+}
+
 .continueButton {
   background: #ffc107;
   color: #212529;
