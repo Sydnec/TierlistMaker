@@ -11,9 +11,11 @@ export async function GET(request) {
 
         let assignments;
         if (tierlistId) {
-            assignments = await db.getTierAssignmentsByTierlist(tierlistId);
+            const result = await db.getTierAssignmentsFromTiers(tierlistId);
+            assignments = Object.entries(result.assignments).map(([item_id, tier_id]) => ({ item_id, tier_id }));
         } else {
-            assignments = await db.getAllTierAssignments();
+            // Pour tous les tierlists, on devrait refactorer mais pour l'instant...
+            throw new Error('Récupération globale non supportée dans la version simplifiée');
         }
 
         console.log(`✅ ${assignments.length} assignments récupérés de la BDD`);
@@ -34,24 +36,25 @@ export async function GET(request) {
 export async function POST(request) {
     try {
         const body = await request.json();
-        const { item_id, tier_id } = body;
+        const { item_id, tier_id, old_tier_id, position = -1 } = body;
 
-        console.log('🔗 Sauvegarde assignment:', { item_id, tier_id });
+        console.log('🔗 Déplacement item:', { item_id, old_tier_id, tier_id, position });
         const db = Database.getInstance();
 
-        const success = await db.saveTierAssignment(item_id, tier_id);
+        // Utiliser la nouvelle méthode simplifiée avec position
+        const success = await db.moveItemToTier(item_id, old_tier_id, tier_id, position);
 
         if (success) {
-            console.log('✅ Assignment sauvegardé en BDD');
+            console.log('✅ Item déplacé avec succès');
             return NextResponse.json({
                 success: true,
-                message: 'Assignment sauvegardé avec succès'
+                message: 'Item déplacé avec succès'
             });
         } else {
-            throw new Error('Échec de la sauvegarde');
+            throw new Error('Échec du déplacement');
         }
     } catch (error) {
-        console.error('❌ Erreur lors de la sauvegarde de l\'assignment:', error);
+        console.error('❌ Erreur lors du déplacement de l\'item:', error);
         return NextResponse.json(
             { success: false, error: error.message },
             { status: 500 }

@@ -22,41 +22,19 @@ export async function GET(request, { params }) {
             );
         }
 
-        // Récupérer toutes les données associées en parallèle
+        // Récupérer toutes les données associées via la nouvelle méthode simplifiée
         console.time('Parallel data fetch');
-        const [items, tiers, assignments, orders] = await Promise.all([
-            db.getItemsByTierlist(tierlistId),
-            db.getTiersByTierlist(tierlistId),
-            db.getTierAssignmentsByTierlist(tierlistId),
-            db.getTierOrdersByTierlist(tierlistId)
-        ]);
+        const fullData = await db.getFullState(tierlistId);
         console.timeEnd('Parallel data fetch');
-
-        // Convertir les assignments en format Map pour la compatibilité
-        const tierAssignments = {};
-        assignments.forEach(assignment => {
-            tierAssignments[assignment.item_id] = assignment.tier_id;
-        });
-
-        // Convertir les ordres en format Map
-        const tierOrders = {};
-        orders.forEach(order => {
-            tierOrders[order.tier_id] = JSON.parse(order.item_order);
-        });
 
         const result = {
             success: true,
             tierlist,
-            data: {
-                items,
-                tiers,
-                tierAssignments,
-                tierOrders
-            }
+            data: fullData
         };
 
         console.timeEnd('API tierlist full');
-        console.log(`✅ Tierlist complète chargée: ${items.length} items, ${tiers.length} tiers`);
+        console.log(`✅ Tierlist complète chargée: ${fullData.items.length} items, ${fullData.tiers.length} tiers`);
 
         return NextResponse.json(result);
     } catch (error) {

@@ -161,11 +161,16 @@ export function useCollaborativeState(tierlistId) {
     // Item déplacé par un autre utilisateur
     socketInstance.on("item-moved", (data) => {
       console.log("Item déplacé par un autre utilisateur:", data);
-      const { itemId, tierId, position } = data;
+      const { itemId, tierId, oldTier } = data;
 
       setCollaborativeState((prev) => {
         const newTierAssignments = { ...prev.tierAssignments };
-        newTierAssignments[itemId] = tierId;
+
+        if (tierId === "unranked") {
+          delete newTierAssignments[itemId];
+        } else {
+          newTierAssignments[itemId] = tierId;
+        }
 
         const newTierOrders = { ...prev.tierOrders };
 
@@ -180,23 +185,22 @@ export function useCollaborativeState(tierlistId) {
           }
         });
 
-        // Ajoute à la position spécifiée dans le nouveau tier
-        if (!newTierOrders[tierId]) {
-          newTierOrders[tierId] = [];
-        } else {
-          newTierOrders[tierId] = [...newTierOrders[tierId]];
-        }
+        // Ajoute à la fin du nouveau tier
+        if (tierId !== "unranked") {
+          if (!newTierOrders[tierId]) {
+            newTierOrders[tierId] = [];
+          } else {
+            newTierOrders[tierId] = [...newTierOrders[tierId]];
+          }
 
-        const currentIndex = newTierOrders[tierId].indexOf(itemId);
-        if (currentIndex !== -1) {
-          newTierOrders[tierId].splice(currentIndex, 1);
-        }
+          const currentIndex = newTierOrders[tierId].indexOf(itemId);
+          if (currentIndex !== -1) {
+            newTierOrders[tierId].splice(currentIndex, 1);
+          }
 
-        const insertPosition = Math.min(
-          position || 0,
-          newTierOrders[tierId].length
-        );
-        newTierOrders[tierId].splice(insertPosition, 0, itemId);
+          // Ajouter à la fin
+          newTierOrders[tierId].push(itemId);
+        }
 
         return {
           ...prev,
@@ -207,7 +211,7 @@ export function useCollaborativeState(tierlistId) {
 
       // Notifie les listeners
       if (listenersRef.current.onItemMoved) {
-        listenersRef.current.onItemMoved(data);
+        listenersRef.current.onItemMoved({ itemId, newTier: tierId, oldTier });
       }
     });
 
@@ -322,12 +326,12 @@ export function useCollaborativeState(tierlistId) {
     }
   };
 
-  const emitItemMove = (itemId, tierId, position = 0) => {
+  const emitItemMove = (itemId, tierId, oldTier) => {
     if (socket && tierlistIdRef.current) {
       socket.emit("item-move", {
         itemId,
         tierId,
-        position,
+        oldTier,
         tierlistId: tierlistIdRef.current
       });
     }

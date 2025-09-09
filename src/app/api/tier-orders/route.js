@@ -11,9 +11,13 @@ export async function GET(request) {
 
         let orders;
         if (tierlistId) {
-            orders = await db.getTierOrdersByTierlist(tierlistId);
+            const result = await db.getTierAssignmentsFromTiers(tierlistId);
+            orders = Object.entries(result.tierOrders).map(([tier_id, item_order]) => ({
+                tier_id,
+                item_order: JSON.stringify(item_order)
+            }));
         } else {
-            orders = await db.getAllTierOrders();
+            throw new Error('Récupération globale non supportée dans la version simplifiée');
         }
 
         console.log(`✅ ${orders.length} ordres récupérés de la BDD`);
@@ -39,7 +43,7 @@ export async function POST(request) {
         console.log('📊 Sauvegarde ordre:', { tier_id, item_order });
         const db = Database.getInstance();
 
-        const success = await db.saveTierOrder(tier_id, item_order);
+        const success = await db.updateTierOrder(tier_id, item_order);
 
         if (success) {
             console.log('✅ Ordre sauvegardé en BDD');

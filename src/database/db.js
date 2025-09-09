@@ -110,7 +110,7 @@ class Database {
       }
     );
 
-    // Table pour les tiers personnalisés
+    // Table pour les tiers personnalisés (contient maintenant l'ordre des items)
     this.db.run(
       `
       CREATE TABLE IF NOT EXISTS tiers (
@@ -119,6 +119,7 @@ class Database {
         name TEXT NOT NULL,
         color TEXT NOT NULL,
         position INTEGER,
+        item_order TEXT DEFAULT '[]',
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (tierlist_id) REFERENCES tierlists (id) ON DELETE CASCADE
@@ -129,53 +130,23 @@ class Database {
           console.error("❌ Erreur création table tiers:", err);
         } else {
           console.log("✅ Table tiers créée/vérifiée avec succès");
+          // Ajouter la colonne item_order si elle n'existe pas déjà
+          this.db.run(
+            `ALTER TABLE tiers ADD COLUMN item_order TEXT DEFAULT '[]'`,
+            (alterErr) => {
+              if (alterErr && !alterErr.message.includes('duplicate column')) {
+                console.log("⚠️ Colonne item_order existe déjà ou erreur:", alterErr.message);
+              } else if (!alterErr) {
+                console.log("✅ Colonne item_order ajoutée à la table tiers");
+              }
+            }
+          );
         }
       }
     );
 
-    // Table pour les affectations des items aux tiers
-    this.db.run(
-      `
-      CREATE TABLE IF NOT EXISTS tier_assignments (
-        item_id TEXT,
-        tier_id TEXT,
-        position INTEGER DEFAULT 0,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        PRIMARY KEY (item_id),
-        FOREIGN KEY (item_id) REFERENCES items(id),
-        FOREIGN KEY (tier_id) REFERENCES tiers(id)
-      )
-    `,
-      (err) => {
-        if (err) {
-          console.error("❌ Erreur création table tier_assignments:", err);
-        } else {
-          console.log("✅ Table tier_assignments créée/vérifiée avec succès");
-        }
-      }
-    );
-
-    // Table pour l'ordre des items dans chaque tier
-    this.db.run(
-      `
-      CREATE TABLE IF NOT EXISTS tier_orders (
-        tier_id TEXT,
-        item_order TEXT,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        PRIMARY KEY (tier_id),
-        FOREIGN KEY (tier_id) REFERENCES tiers(id) ON DELETE CASCADE
-      )
-    `,
-      (err) => {
-        if (err) {
-          console.error("❌ Erreur création table tier_orders:", err);
-        } else {
-          console.log("✅ Table tier_orders créée/vérifiée avec succès");
-        }
-      }
-    );
+    // Migration des données existantes et nettoyage des tables redondantes
+    this.migrateToSimplifiedStructure();
   }
 
   // Méthodes pour les items
@@ -281,12 +252,6 @@ class Database {
   }
 
   async deleteItem(itemId) {
-    console.log(
-      "🗃️ Database.deleteItem appelée avec ID:",
-      itemId,
-      "type:",
-      typeof itemId
-    );
     return new Promise(async (resolve, reject) => {
       try {
         // Chercher l'item par ID exact
@@ -302,13 +267,11 @@ class Database {
         });
 
         if (!exactMatch) {
-          console.log("❌ Item non trouvé avec ID:", itemId);
           resolve({ tierChanges: 0, itemChanges: 0 });
           return;
         }
 
         const itemToDelete = exactMatch.id;
-        console.log("🎯 Item trouvé par ID exact:", itemToDelete);
 
         // Récupérer les informations de l'item avant suppression (pour supprimer l'image)
         const itemData = await new Promise((res, rej) => {
@@ -340,21 +303,55 @@ class Database {
           console.log(`🔍 Autres items utilisant l'image "${itemData.image}": ${otherItemsUsingImage}`);
         }
 
-        // Supprimer d'abord les affectations aux tiers
+        // Supprimer l'item de l'ordre de tous les tiers (nouvelle logique)
         console.log(
           "🗃️ Suppression des affectations de tiers pour:",
           itemToDelete
         );
+
+        // Récupérer tous les tiers et nettoyer leurs item_order
         const tierResult = await new Promise((res, rej) => {
-          this.db.run(
-            `DELETE FROM tier_assignments WHERE item_id = ?`,
-            [itemToDelete],
-            function (err) {
-              if (err) rej(err);
-              else res({ changes: this.changes });
+          this.db.all(
+            "SELECT id, item_order FROM tiers",
+            [],
+            (err, rows) => {
+              if (err) {
+                rej(err);
+                return;
+              }
+
+              let totalChanges = 0;
+              const updatePromises = rows.map(tier => {
+                const itemOrder = JSON.parse(tier.item_order || '[]');
+                const filteredOrder = itemOrder.filter(id => id !== itemToDelete);
+
+                // Ne mettre à jour que si l'item était présent
+                if (itemOrder.length !== filteredOrder.length) {
+                  return new Promise((updateRes, updateRej) => {
+                    this.db.run(
+                      "UPDATE tiers SET item_order = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                      [JSON.stringify(filteredOrder), tier.id],
+                      function (updateErr) {
+                        if (updateErr) updateRej(updateErr);
+                        else {
+                          totalChanges += this.changes;
+                          updateRes();
+                        }
+                      }
+                    );
+                  });
+                } else {
+                  return Promise.resolve();
+                }
+              });
+
+              Promise.all(updatePromises).then(() => {
+                res({ changes: totalChanges });
+              }).catch(rej);
             }
           );
         });
+
         console.log(
           "🗃️ Affectations supprimées:",
           tierResult.changes,
@@ -477,17 +474,22 @@ class Database {
     });
   }
 
-  // Méthodes pour les affectations
-  async assignItemToTier(itemId, tierId, position = 0) {
+  // **NOUVELLES MÉTHODES SIMPLIFIÉES**
+
+  // Sauvegarder l'ordre des items dans un tier
+  async updateTierOrder(tierId, itemOrder) {
+    console.log("🗃️ Database.updateTierOrder appelée avec:", { tierId, itemOrder });
+
     return new Promise((resolve, reject) => {
       this.db.run(
-        `INSERT OR REPLACE INTO tier_assignments (item_id, tier_id, position, updated_at)
-         VALUES (?, ?, ?, CURRENT_TIMESTAMP)`,
-        [itemId, tierId, position],
+        "UPDATE tiers SET item_order = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+        [JSON.stringify(itemOrder), tierId],
         function (err) {
           if (err) {
+            console.error("🗃️ Erreur SQL dans updateTierOrder:", err);
             reject(err);
           } else {
+            console.log("🗃️ Ordre des items mis à jour - changes:", this.changes);
             resolve({ changes: this.changes });
           }
         }
@@ -495,17 +497,134 @@ class Database {
     });
   }
 
-  async removeItemFromTier(itemId) {
+  // Obtenir les assignments depuis les tiers (nouvelle logique)
+  async getTierAssignmentsFromTiers(tierlistId) {
     return new Promise((resolve, reject) => {
-      this.db.run(
-        `DELETE FROM tier_assignments WHERE item_id = ?`,
-        [itemId],
-        function (err) {
+      this.db.all(
+        "SELECT id, item_order FROM tiers WHERE tierlist_id = ?",
+        [tierlistId],
+        (err, rows) => {
           if (err) {
+            console.error("🗃️ Erreur SQL dans getTierAssignmentsFromTiers:", err);
             reject(err);
           } else {
-            resolve({ changes: this.changes });
+            console.log(`🗃️ ${rows.length} tiers récupérés pour reconstruire les assignments`);
+
+            // Reconstruire les assignments à partir des tiers
+            const assignments = {};
+            const tierOrders = {};
+
+            rows.forEach(tier => {
+              const itemOrder = JSON.parse(tier.item_order || '[]');
+              tierOrders[tier.id] = itemOrder;
+
+              // Chaque item dans le tier est assigné à ce tier
+              itemOrder.forEach(itemId => {
+                assignments[itemId] = tier.id;
+              });
+            });
+
+            resolve({ assignments, tierOrders });
           }
+        }
+      );
+    });
+  }
+
+  // Déplacer un item vers un tier (nouvelle logique)
+  async moveItemToTier(itemId, oldTierId, newTierId, newPosition = -1) {
+    console.log("🗃️ Database.moveItemToTier appelée avec:", { itemId, oldTierId, newTierId, newPosition });
+
+    return new Promise((resolve, reject) => {
+      // Si oldTierId est fourni, retirer l'item de l'ancien tier
+      const removeFromOld = oldTierId ? this.removeItemFromTierOrder(itemId, oldTierId) : Promise.resolve();
+
+      removeFromOld.then(() => {
+        // Si newTierId est fourni, ajouter l'item au nouveau tier
+        if (newTierId && newTierId !== 'unranked') {
+          return this.addItemToTierOrder(itemId, newTierId, newPosition);
+        } else {
+          resolve({ success: true });
+        }
+      }).then(() => {
+        resolve({ success: true });
+      }).catch(err => {
+        console.error("❌ Erreur lors du déplacement:", err);
+        reject(err);
+      });
+    });
+  }
+
+  // Retirer un item de l'ordre d'un tier
+  async removeItemFromTierOrder(itemId, tierId) {
+    return new Promise((resolve, reject) => {
+      // Récupérer l'ordre actuel
+      this.db.get(
+        "SELECT item_order FROM tiers WHERE id = ?",
+        [tierId],
+        (err, row) => {
+          if (err) {
+            reject(err);
+            return;
+          }
+
+          const currentOrder = JSON.parse(row?.item_order || '[]');
+          const newOrder = currentOrder.filter(id => id !== itemId);
+
+          // Mettre à jour l'ordre
+          this.db.run(
+            "UPDATE tiers SET item_order = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            [JSON.stringify(newOrder), tierId],
+            function (updateErr) {
+              if (updateErr) {
+                reject(updateErr);
+              } else {
+                resolve({ changes: this.changes });
+              }
+            }
+          );
+        }
+      );
+    });
+  }
+
+  // Ajouter un item à l'ordre d'un tier
+  async addItemToTierOrder(itemId, tierId, position = -1) {
+    return new Promise((resolve, reject) => {
+      // Récupérer l'ordre actuel
+      this.db.get(
+        "SELECT item_order FROM tiers WHERE id = ?",
+        [tierId],
+        (err, row) => {
+          if (err) {
+            reject(err);
+            return;
+          }
+
+          const currentOrder = JSON.parse(row?.item_order || '[]');
+
+          // Retirer l'item s'il existe déjà
+          const filteredOrder = currentOrder.filter(id => id !== itemId);
+
+          // Ajouter à la position spécifiée (ou à la fin si position = -1)
+          if (position >= 0 && position < filteredOrder.length) {
+            filteredOrder.splice(position, 0, itemId);
+          } else {
+            filteredOrder.push(itemId);
+          }
+
+          // Mettre à jour l'ordre
+          this.db.run(
+            "UPDATE tiers SET item_order = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            [JSON.stringify(filteredOrder), tierId],
+            function (updateErr) {
+              if (updateErr) {
+                reject(updateErr);
+              } else {
+                resolve({ changes: this.changes });
+              }
+            }
+          );
         }
       );
     });
@@ -849,36 +968,25 @@ class Database {
     console.log("🗃️ Database.getFullState appelée pour tierlist:", tierlistId);
 
     try {
-      console.time('Récupération items');
+      const timestamp = Date.now();
+
+      console.time(`Récupération items-${timestamp}`);
       const items = await this.getItemsByTierlist(tierlistId);
-      console.timeEnd('Récupération items');
+      console.timeEnd(`Récupération items-${timestamp}`);
 
-      console.time('Récupération tiers');
+      console.time(`Récupération tiers-${timestamp}`);
       const tiers = await this.getTiersByTierlist(tierlistId);
-      console.timeEnd('Récupération tiers');
+      console.timeEnd(`Récupération tiers-${timestamp}`);
 
-      console.time('Récupération assignments');
-      const assignments = await this.getTierAssignmentsByTierlist(tierlistId);
-      console.timeEnd('Récupération assignments');
-
-      console.time('Récupération ordres');
-      const tierOrders = await this.getTierOrdersByTierlist(tierlistId);
-      console.timeEnd('Récupération ordres');
-
-      // Convertir les assignments en format Map pour la compatibilité
-      const tierAssignments = {};
-      assignments.forEach(assignment => {
-        tierAssignments[assignment.item_id] = assignment.tier_id;
-      });
+      console.time(`Récupération assignments depuis tiers-${timestamp}`);
+      const { assignments, tierOrders } = await this.getTierAssignmentsFromTiers(tierlistId);
+      console.timeEnd(`Récupération assignments depuis tiers-${timestamp}`);
 
       return {
         items,
         tiers,
-        tierAssignments,
-        tierOrders: tierOrders.reduce((acc, order) => {
-          acc[order.tier_id] = JSON.parse(order.item_order);
-          return acc;
-        }, {}),
+        tierAssignments: assignments,
+        tierOrders: tierOrders,
       };
     } catch (error) {
       console.error("❌ Erreur dans getFullState:", error);
@@ -923,23 +1031,40 @@ class Database {
   }
 
   async getTierAssignmentsByTierlist(tierlistId) {
-    return new Promise((resolve, reject) => {
-      this.db.all(
-        `SELECT ta.* FROM tier_assignments ta
-         JOIN items i ON ta.item_id = i.id
-         WHERE i.tierlist_id = ?`,
-        [tierlistId],
-        (err, rows) => {
-          if (err) {
-            console.error("🗃️ Erreur SQL dans getTierAssignmentsByTierlist:", err);
-            reject(err);
-          } else {
-            console.log(`🗃️ ${rows.length} assignments récupérés pour tierlist ${tierlistId}`);
-            resolve(rows);
-          }
-        }
-      );
-    });
+    console.log("⚠️ Utilisation de l'ancienne méthode getTierAssignmentsByTierlist - à migrer");
+    const result = await this.getTierAssignmentsFromTiers(tierlistId);
+    return Object.entries(result.assignments).map(([item_id, tier_id]) => ({ item_id, tier_id }));
+  }
+
+  async getTierOrdersByTierlist(tierlistId) {
+    console.log("⚠️ Utilisation de l'ancienne méthode getTierOrdersByTierlist - à migrer");
+    const result = await this.getTierAssignmentsFromTiers(tierlistId);
+    return Object.entries(result.tierOrders).map(([tier_id, item_order]) => ({
+      tier_id,
+      item_order: JSON.stringify(item_order)
+    }));
+  }
+
+  async getAllTierAssignments() {
+    throw new Error("Méthode getAllTierAssignments non supportée dans la version simplifiée");
+  }
+
+  async saveTierAssignment(assignmentData) {
+    console.log("⚠️ Utilisation de l'ancienne méthode saveTierAssignment - ignorée car redondante");
+    // Dans la nouvelle structure, cette méthode n'est plus nécessaire
+    // car les assignments sont gérés via les tiers directement
+    return { changes: 1 }; // Simulation pour compatibilité
+  }
+
+  async removeItemFromTier(itemId) {
+    console.log("⚠️ Utilisation de l'ancienne méthode removeItemFromTier - à migrer");
+    // Pour l'instant, on ne fait rien car cette logique est gérée par moveItemToTier
+    return { changes: 1 }; // Simulation pour compatibilité
+  }
+
+  async saveTierOrder(orderData) {
+    console.log("⚠️ Utilisation de l'ancienne méthode saveTierOrder - redirection vers updateTierOrder");
+    return this.updateTierOrder(orderData.tier_id, orderData.item_order);
   }
 
   async getTierOrdersByTierlist(tierlistId) {
@@ -1024,6 +1149,88 @@ class Database {
           } else {
             console.log("🗃️ Ordre sauvegardé - changes:", this.changes);
             resolve({ changes: this.changes });
+          }
+        }
+      );
+    });
+  }
+
+  // Migration vers la structure simplifiée
+  async migrateToSimplifiedStructure() {
+    return new Promise((resolve, reject) => {
+      console.log("🔄 Migration vers la structure simplifiée...");
+
+      // Vérifier si les anciennes tables existent
+      this.db.get("SELECT name FROM sqlite_master WHERE type='table' AND name='tier_orders'",
+        async (err, row) => {
+          if (err) {
+            console.log("⚠️ Erreur vérification table tier_orders:", err);
+            resolve();
+            return;
+          }
+
+          if (!row) {
+            console.log("✅ Migration déjà effectuée ou pas de données à migrer");
+            resolve();
+            return;
+          }
+
+          try {
+            // Migrer les données de tier_orders vers tiers.item_order
+            console.log("📦 Migration des ordres des tiers...");
+            this.db.all("SELECT tier_id, item_order FROM tier_orders",
+              (err, orders) => {
+                if (err) {
+                  console.error("❌ Erreur lecture tier_orders:", err);
+                  resolve();
+                  return;
+                }
+
+                console.log(`📋 ${orders.length} ordres de tiers à migrer`);
+
+                // Mettre à jour chaque tier avec son ordre
+                const updatePromises = orders.map(order => {
+                  return new Promise((resolveUpdate, rejectUpdate) => {
+                    this.db.run(
+                      "UPDATE tiers SET item_order = ? WHERE id = ?",
+                      [order.item_order || '[]', order.tier_id],
+                      function (err) {
+                        if (err) {
+                          console.error(`❌ Erreur mise à jour tier ${order.tier_id}:`, err);
+                          rejectUpdate(err);
+                        } else {
+                          console.log(`✅ Tier ${order.tier_id} mis à jour`);
+                          resolveUpdate();
+                        }
+                      }
+                    );
+                  });
+                });
+
+                Promise.all(updatePromises).then(() => {
+                  // Supprimer les anciennes tables
+                  console.log("🗑️ Suppression des tables redondantes...");
+                  this.db.run("DROP TABLE IF EXISTS tier_assignments", (err) => {
+                    if (err) console.error("❌ Erreur suppression tier_assignments:", err);
+                    else console.log("✅ Table tier_assignments supprimée");
+                  });
+
+                  this.db.run("DROP TABLE IF EXISTS tier_orders", (err) => {
+                    if (err) console.error("❌ Erreur suppression tier_orders:", err);
+                    else console.log("✅ Table tier_orders supprimée");
+                  });
+
+                  console.log("🎉 Migration terminée avec succès!");
+                  resolve();
+                }).catch(err => {
+                  console.error("❌ Erreur durant la migration:", err);
+                  resolve();
+                });
+              }
+            );
+          } catch (error) {
+            console.error("❌ Erreur durant la migration:", error);
+            resolve();
           }
         }
       );

@@ -30,7 +30,7 @@ export function cleanFileName(filename) {
  */
 export function getFileNameWithoutExtension(filename) {
     if (!filename) return '';
-    return cleanFileName(filename.replace(/\.[^/.]+$/, ''));
+    return filename.replace(/\.[^/.]+$/, '');
 }
 
 /**

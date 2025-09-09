@@ -5,10 +5,14 @@
   background: var(--background);
   border-radius: 8px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease;
   cursor: grab;
   border: 2px solid transparent;
   overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
 }
 
 .card:hover {
@@ -16,8 +20,26 @@
   z-index: 10;
 }
 
-.card:active {
+/* Curseur pendant le drag */
+.card.dragging {
+  cursor: grabbing !important;
+}
+
+/* État drag : AncienEmplacement pour item non-placé (reste visible mais plus transparent) */
+.card.ancienEmplacementVisible {
+  opacity: 0.3;
   cursor: grabbing;
+}
+
+/* État drag : AncienEmplacement pour item déjà placé (devient complètement invisible) */
+.card.ancienEmplacementInvisible {
+  opacity: 0;
+  cursor: grabbing;
+  pointer-events: none; /* Permet de passer à travers l'élément invisible */
+}
+
+.card:active .image {
+  opacity: 0.8;
 }
 
 .imageContainer {
@@ -32,6 +54,10 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
+  user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
 }
 
 .overlay {

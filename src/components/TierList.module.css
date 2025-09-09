@@ -1,3 +1,13 @@
+/* État global pendant le drag */
+.tierListContainer.dragging {
+  cursor: grabbing !important;
+  transition: cursor 0.1s ease;
+}
+
+.tierListContainer.dragging *:not(.card) {
+  cursor: grabbing !important;
+}
+
 .tierListContainer {
   display: flex;
   width: 100%;
@@ -8,6 +18,7 @@
   padding: 10px;
   min-height: 100vh;
   position: relative;
+  transition: cursor 0.1s ease;
 }
 
 .tierList {
@@ -175,6 +186,13 @@
   display: inline-block;
 }
 
+.itemCardWrapper.ancienEmplacementInvisible {
+  opacity: 0;
+  position: absolute;
+  pointer-events: none;
+  z-index: -1;
+}
+
 /* Indicateur de position pour le drop */
 .dropIndicator {
   position: absolute;
@@ -211,13 +229,10 @@
 
 /* États de drag et drop avec aperçu visuel */
 .itemCardWrapper.dragging {
-  opacity: 0;
-  transform: scale(0);
-  width: 0;
-  height: 0;
-  margin: 0;
-  padding: 0;
-  overflow: hidden;
+  opacity: 0.3;
+  transform: scale(0.9) rotate(3deg);
+  border: 2px dashed #667eea;
+  border-radius: 8px;
   transition: all 0.2s ease;
 }
 

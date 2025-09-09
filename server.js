@@ -35,7 +35,8 @@ function getTierlistRoom(tierlistId) {
 // Fonction pour charger l'état d'une tierlist depuis la base de données
 async function loadTierlistStateFromDB(tierlistId) {
   try {
-    console.time(`Chargement état tierlist ${tierlistId}`);
+    const timestamp = Date.now();
+    console.time(`Chargement état tierlist ${tierlistId}-${timestamp}`);
     const state = await db.getFullState(tierlistId);
     const room = getTierlistRoom(tierlistId);
 
@@ -50,7 +51,7 @@ async function loadTierlistStateFromDB(tierlistId) {
     console.log(
       `État tierlist ${tierlistId} chargé: ${state.items.length} items, ${state.tiers.length} tiers`
     );
-    console.timeEnd(`Chargement état tierlist ${tierlistId}`);
+    console.timeEnd(`Chargement état tierlist ${tierlistId}-${timestamp}`);
   } catch (error) {
     console.error(
       `Erreur lors du chargement de la tierlist ${tierlistId}:`,
@@ -225,15 +226,15 @@ app.prepare().then(async () => {
     socket.on("item-move", async (data) => {
       if (!socket.tierlistId) return;
 
-      const { itemId, tierId, position } = data;
+      const { itemId, tierId, oldTier } = data;
       const room = getTierlistRoom(socket.tierlistId);
 
       console.log(
-        `Item ${itemId} déplacé vers tier ${tierId} dans tierlist ${socket.tierlistId}`
+        `Item ${itemId} déplacé vers tier ${tierId} depuis ${oldTier} dans tierlist ${socket.tierlistId}`
       );
 
       try {
-        // Sauvegarde en base de données
+        // Sauvegarde en base de données avec la position par défaut (-1 = fin)
         if (tierId === "unranked") {
           await db.removeItemFromTier(itemId);
         }

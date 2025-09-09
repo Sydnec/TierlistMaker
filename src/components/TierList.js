@@ -82,12 +82,15 @@ export default function TierList({
   // Notifie les changements d'ordre
   const updateTierOrders = (newOrders) => {
     setTierOrders(newOrders);
+    // Notifier chaque changement individuellement pour correspondre à la signature attendue
     if (onTierOrdersChange) {
-      onTierOrdersChange(newOrders);
+      for (const [tierId, itemOrder] of newOrders.entries()) {
+        onTierOrdersChange(tierId, itemOrder);
+      }
     }
   };
 
-  // Organise les items par tier avec ordre personnalisé et espace de drop
+  // Organise les items par tier avec ordre personnalisé et placeholders
   const organizeItemsByTier = useCallback(() => {
     const organized = {};
 
@@ -99,7 +102,7 @@ export default function TierList({
     // Ajoute une section pour les items non classés
     organized["unranked"] = [];
 
-    // Distribue les items
+    // Ajoute les items dans chaque tier
     items.forEach((item) => {
       const tier = tierAssignments.get(item.id) || "unranked";
       organized[tier].push(item);
@@ -114,14 +117,13 @@ export default function TierList({
       });
     }
 
-    // Applique l'ordre personnalisé pour chaque tier (SAUF pour unranked qui est trié alphabétiquement)
+    // Applique l'ordre personnalisé pour chaque tier
     Object.keys(organized).forEach((tierId) => {
       // Ignore les items non-classés car ils sont déjà triés alphabétiquement
       if (tierId === "unranked") return;
 
       const tierOrder = tierOrders.get(tierId);
       if (tierOrder && tierOrder.length > 0) {
-        // Trie selon l'ordre personnalisé, puis ajoute les nouveaux items à la fin
         const orderedItems = [];
         const remainingItems = [...organized[tierId]];
 
@@ -138,43 +140,41 @@ export default function TierList({
         orderedItems.push(...remainingItems);
         organized[tierId] = orderedItems;
       }
+    });
 
-      // Ajoute un placeholder pour l'espace de drop si nécessaire
-      if (
-        draggedItem &&
-        dragOverPosition &&
-        dragOverPosition.tierId === tierId
-      ) {
-        const targetIndex = organized[tierId].findIndex(
-          (a) => a.id === dragOverPosition.targetItemId
-        );
-        if (targetIndex !== -1) {
-          const insertIndex = dragOverPosition.insertBefore
-            ? targetIndex
-            : targetIndex + 1;
-          // Crée un placeholder pour l'espace de drop
+    // Ajoute des placeholders pendant le drag
+    if (draggedItem && dragOverPosition) {
+      const targetTierId = dragOverPosition.tierId;
+
+      // Ajouter un placeholder dans le tier survolé
+      if (organized[targetTierId] !== undefined) {
+        if (dragOverPosition.targetItemId) {
+          // Position spécifique entre les items
+          const targetIndex = organized[targetTierId].findIndex(
+            (item) => item.id === dragOverPosition.targetItemId
+          );
+          if (targetIndex !== -1) {
+            const insertIndex = dragOverPosition.insertBefore
+              ? targetIndex
+              : targetIndex + 1;
+            const placeholder = {
+              id: "__DROP_PLACEHOLDER__",
+              isPlaceholder: true,
+              draggedItem: draggedItem,
+            };
+            organized[targetTierId].splice(insertIndex, 0, placeholder);
+          }
+        } else {
+          // Ajouter à la fin (tier vide ou pas de position spécifique)
           const placeholder = {
             id: "__DROP_PLACEHOLDER__",
             isPlaceholder: true,
             draggedItem: draggedItem,
           };
-          organized[tierId].splice(insertIndex, 0, placeholder);
+          organized[targetTierId].push(placeholder);
         }
-      } else if (
-        draggedItem &&
-        dragOverPosition &&
-        dragOverPosition.tierId === tierId &&
-        organized[tierId].length === 0
-      ) {
-        // Tier vide, ajoute le placeholder
-        const placeholder = {
-          id: "__DROP_PLACEHOLDER__",
-          isPlaceholder: true,
-          draggedItem: draggedItem,
-        };
-        organized[tierId] = [placeholder];
       }
-    });
+    }
 
     return organized;
   }, [
@@ -192,13 +192,53 @@ export default function TierList({
   };
 
   const handleDragEnd = () => {
-    setDraggedItem(null);
+    // Réinitialiser TOUS les états de drag pour s'assurer que le curseur revient normal
     setDragOverPosition(null);
+    setDraggedItem(null);
+  };
+
+  // Fonction helper pour déterminer l'état d'affichage d'un item
+  const getItemDisplayState = (item) => {
+    if (!draggedItem || draggedItem.id !== item.id) {
+      return { isAncienEmplacement: false, isAncienEmplacementVisible: true };
+    }
+
+    // L'item est en cours de drag
+    const currentTier = tierAssignments.get(item.id) || "unranked";
+
+    if (currentTier === "unranked") {
+      // Item non-placé : AncienEmplacement reste VISIBLE (semi-transparent)
+      return { isAncienEmplacement: true, isAncienEmplacementVisible: true };
+    } else {
+      // Item déjà placé : AncienEmplacement devient INVISIBLE dès qu'on a une position de drag
+      const hasDragPosition = dragOverPosition !== null;
+      return {
+        isAncienEmplacement: true,
+        isAncienEmplacementVisible: !hasDragPosition
+      };
+    }
   };
 
   const handleDragOver = (e) => {
     e.preventDefault();
     e.dataTransfer.dropEffect = "move";
+  };
+
+  // Gestion du survol général d'un tier
+  const handleDragOverTier = (e, tierId) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (!draggedItem) return;
+
+    // Si on n'a pas de position spécifique, mettre le placeholder à la fin
+    if (!dragOverPosition || dragOverPosition.tierId !== tierId) {
+      setDragOverPosition({
+        tierId,
+        targetItemId: null,
+        insertBefore: false, // À la fin par défaut
+      });
+    }
   };
 
   // Gestion du survol pour insertion entre les items
@@ -242,226 +282,106 @@ export default function TierList({
     e.preventDefault();
     if (!draggedItem) return;
 
-    const newAssignments = new Map(tierAssignments);
     const currentTier = tierAssignments.get(draggedItem.id) || "unranked";
+    const draggedItemRef = draggedItem; // Garder une référence
+    const dragOverPositionRef = dragOverPosition; // Garder une référence
 
-    // Assigner à un nouveau tier
-    if (tierId === "unranked") {
-      newAssignments.delete(draggedItem.id);
-    } else {
-      newAssignments.set(draggedItem.id, tierId);
-    }
-
-    // Gérer le réarrangement dans le même tier ou nouveau tier
+    // 1. Calculer le nouvel ordre pour ce tier EN PREMIER
     const newTierOrders = new Map(tierOrders);
 
-    // Si on a une position spécifique (dragOverPosition), on l'utilise
-    if (
-      dragOverPosition &&
-      dragOverPosition.tierId === tierId &&
-      dragOverPosition.targetItemId
-    ) {
-      // Utiliser la même logique que l'affichage pour calculer les positions
-      const currentOrganized = organizeItemsWithPlaceholderAndDragRemoved();
-      const tierItems = currentOrganized[tierId] || [];
+    if (dragOverPositionRef && dragOverPositionRef.tierId === tierId) {
+      // On a une position spécifique grâce au placeholder
+      const currentOrganized = organizeItemsByTier();
+      const currentItems = currentOrganized[tierId] || [];
+      const realItems = currentItems.filter((a) => !a.isPlaceholder);
 
-      // Filtrer le placeholder pour avoir la vraie liste
-      const realItems = tierItems.filter((a) => !a.isPlaceholder);
-      const targetIndex = realItems.findIndex(
-        (a) => a.id === dragOverPosition.targetItemId
-      );
+      if (dragOverPositionRef.targetItemId) {
+        // Position entre des items existants
+        const targetIndex = realItems.findIndex(
+          (a) => a.id === dragOverPositionRef.targetItemId
+        );
 
-      if (targetIndex !== -1) {
-        // Créer le nouvel ordre pour ce tier
-        const newOrder = [...realItems.map((a) => a.id)];
+        if (targetIndex !== -1) {
+          const itemsWithoutDragged = realItems.filter((a) => a.id !== draggedItemRef.id);
 
-        // Insérer l'item à la nouvelle position
-        const insertIndex = dragOverPosition.insertBefore
-          ? targetIndex
-          : targetIndex + 1;
+          // Calculer l'index d'insertion correctement
+          let insertIndex;
+          if (dragOverPositionRef.insertBefore) {
+            // Insérer avant l'item cible
+            const targetInFilteredIndex = itemsWithoutDragged.findIndex(
+              (a) => a.id === dragOverPositionRef.targetItemId
+            );
+            insertIndex = targetInFilteredIndex === -1 ? targetIndex : targetInFilteredIndex;
+          } else {
+            // Insérer après l'item cible
+            const targetInFilteredIndex = itemsWithoutDragged.findIndex(
+              (a) => a.id === dragOverPositionRef.targetItemId
+            );
+            insertIndex = targetInFilteredIndex === -1 ? targetIndex + 1 : targetInFilteredIndex + 1;
+          }
 
-        newOrder.splice(insertIndex, 0, draggedItem.id);
+          itemsWithoutDragged.splice(insertIndex, 0, draggedItemRef);
+          const newOrder = itemsWithoutDragged.map((a) => a.id);
+          newTierOrders.set(tierId, newOrder);
+        }
+      } else {
+        // Ajout à la fin (tier vide ou pas de cible spécifique)
+        const itemsWithoutDragged = realItems.filter((a) => a.id !== draggedItemRef.id);
+        const newOrder = [...itemsWithoutDragged.map((a) => a.id), draggedItemRef.id];
         newTierOrders.set(tierId, newOrder);
       }
-    } else if (currentTier !== tierId) {
-      // Si on change de tier sans position spécifique, ajouter à la fin
-      const currentOrganized = organizeItemsWithoutPlaceholder();
-      const tierItems = currentOrganized[tierId] || [];
-      // Retirer l'item en cours de drag s'il était dans ce tier
-      const filteredItems = tierItems.filter((a) => a.id !== draggedItem.id);
-      const newOrder = [...filteredItems.map((a) => a.id), draggedItem.id];
+    } else {
+      // Pas de position spécifique, ajouter à la fin
+      const currentOrganized = organizeItemsByTier();
+      const currentItems = currentOrganized[tierId] || [];
+      const filteredItems = currentItems.filter((a) => a.id !== draggedItemRef.id && !a.isPlaceholder);
+      const newOrder = [...filteredItems.map((a) => a.id), draggedItemRef.id];
       newTierOrders.set(tierId, newOrder);
     }
 
-    // Nettoyer l'ordre de l'ancien tier si l'item en sort
+    // 2. Nettoyer l'ordre de l'ancien tier
     if (currentTier !== tierId && currentTier !== "unranked") {
       const oldOrder = newTierOrders.get(currentTier) || [];
-      const cleanedOrder = oldOrder.filter((id) => id !== draggedItem.id);
+      const cleanedOrder = oldOrder.filter((id) => id !== draggedItemRef.id);
       newTierOrders.set(currentTier, cleanedOrder);
     }
 
-    updateTierAssignments(newAssignments);
+    // 3. Mettre à jour les assignments
+    const newAssignments = new Map(tierAssignments);
+    if (tierId === "unranked") {
+      newAssignments.delete(draggedItemRef.id);
+    } else {
+      newAssignments.set(draggedItemRef.id, tierId);
+    }
+
+    // 4. RESET les états de drag IMMÉDIATEMENT
+    setDragOverPosition(null);
+    setDraggedItem(null);
+
+    // 5. Appliquer les changements locaux IMMÉDIATEMENT pour mise à jour visuelle
+    setTierAssignments(newAssignments);
     setTierOrders(newTierOrders);
 
-    // Notifier les changements d'ordre s'il y a un callback
+    // 6. Notifier les callbacks parents
+    if (onTierAssignmentsChange) {
+      onTierAssignmentsChange(newAssignments);
+    }
+
     if (onTierOrdersChange) {
-      onTierOrdersChange(newTierOrders);
-    }
-
-    // Calcule la position finale dans le tier avant de réinitialiser
-    let finalPosition = 0;
-    if (dragOverPosition && dragOverPosition.targetItemId) {
-      const finalOrder = newTierOrders.get(tierId) || [];
-      finalPosition = finalOrder.indexOf(draggedItem.id);
-    } else {
-      const finalOrder = newTierOrders.get(tierId) || [];
-      finalPosition = Math.max(0, finalOrder.indexOf(draggedItem.id));
-    }
-
-    setDragOverPosition(null);
-    setDraggedItem(null); // Réinitialiser draggedItem pour éviter que l'item reste invisible
-
-    // Toujours émettre l'événement collaboratif
-    if (onTierChange) {
-      onTierChange(draggedItem.id, tierId, finalPosition);
-    }
-  };
-
-  // Fonction helper pour organiser avec retrait de l'item en cours de drag (comme dans l'affichage)
-  const organizeItemsWithPlaceholderAndDragRemoved = () => {
-    const organized = {};
-
-    tiers.forEach((tier) => {
-      organized[tier.id] = [];
-    });
-    organized["unranked"] = [];
-
-    items.forEach((item) => {
-      const tier = tierAssignments.get(item.id) || "unranked";
-      organized[tier].push(item);
-    });
-
-    // Trie les animés non-classés par ordre alphabétique
-    if (organized["unranked"] && organized["unranked"].length > 0) {
-      organized["unranked"].sort((a, b) => {
-        const titleA = (a.title || "").toLowerCase();
-        const titleB = (b.title || "").toLowerCase();
-        return titleA.localeCompare(titleB);
-      });
-    }
-
-    Object.keys(organized).forEach((tierId) => {
-      // Ignore les animés non-classés car ils sont déjà triés alphabétiquement
-      if (tierId === "unranked") return;
-
-      const tierOrder = tierOrders.get(tierId);
-      if (tierOrder && tierOrder.length > 0) {
-        const orderedItems = [];
-        const remainingItems = [...organized[tierId]];
-
-        tierOrder.forEach((itemId) => {
-          const itemIndex = remainingItems.findIndex((a) => a.id === itemId);
-          if (itemIndex !== -1) {
-            orderedItems.push(remainingItems[itemIndex]);
-            remainingItems.splice(itemIndex, 1);
-          }
-        });
-
-        orderedItems.push(...remainingItems);
-        organized[tierId] = orderedItems;
-      }
-
-      // Retirer l'item en cours de drag (comme dans l'affichage)
-      if (draggedItem) {
-        organized[tierId] = organized[tierId].filter(
-          (item) => item.id !== draggedItem.id
-        );
-      }
-
-      // Ajouter le placeholder si nécessaire (pour simuler l'affichage)
-      if (
-        draggedItem &&
-        dragOverPosition &&
-        dragOverPosition.tierId === tierId
-      ) {
-        const targetIndex = organized[tierId].findIndex(
-          (a) => a.id === dragOverPosition.targetItemId
-        );
-        if (targetIndex !== -1) {
-          const insertIndex = dragOverPosition.insertBefore
-            ? targetIndex
-            : targetIndex + 1;
-          const placeholder = {
-            id: "__DROP_PLACEHOLDER__",
-            isPlaceholder: true,
-            draggedItem: draggedItem,
-          };
-          organized[tierId].splice(insertIndex, 0, placeholder);
+      for (const [tierIdToUpdate, newOrder] of newTierOrders.entries()) {
+        const previousOrder = tierOrders.get(tierIdToUpdate) || [];
+        if (JSON.stringify(previousOrder) !== JSON.stringify(newOrder)) {
+          onTierOrdersChange(tierIdToUpdate, newOrder);
         }
-      } else if (
-        draggedItem &&
-        dragOverPosition &&
-        dragOverPosition.tierId === tierId &&
-        organized[tierId].length === 0
-      ) {
-        const placeholder = {
-          id: "__DROP_PLACEHOLDER__",
-          isPlaceholder: true,
-          draggedItem: draggedItem,
-        };
-        organized[tierId] = [placeholder];
       }
-    });
-
-    return organized;
-  };
-
-  // Fonction helper pour organiser sans placeholder (pour éviter les boucles infinies)
-  const organizeItemsWithoutPlaceholder = () => {
-    const organized = {};
-
-    tiers.forEach((tier) => {
-      organized[tier.id] = [];
-    });
-    organized["unranked"] = [];
-
-    items.forEach((item) => {
-      const tier = tierAssignments.get(item.id) || "unranked";
-      organized[tier].push(item);
-    });
-
-    // Trie les animés non-classés par ordre alphabétique
-    if (organized["unranked"] && organized["unranked"].length > 0) {
-      organized["unranked"].sort((a, b) => {
-        const titleA = (a.title || "").toLowerCase();
-        const titleB = (b.title || "").toLowerCase();
-        return titleA.localeCompare(titleB);
-      });
     }
 
-    Object.keys(organized).forEach((tierId) => {
-      // Ignore les animés non-classés car ils sont déjà triés alphabétiquement
-      if (tierId === "unranked") return;
-
-      const tierOrder = tierOrders.get(tierId);
-      if (tierOrder && tierOrder.length > 0) {
-        const orderedItems = [];
-        const remainingItems = [...organized[tierId]];
-
-        tierOrder.forEach((itemId) => {
-          const itemIndex = remainingItems.findIndex((a) => a.id === itemId);
-          if (itemIndex !== -1) {
-            orderedItems.push(remainingItems[itemIndex]);
-            remainingItems.splice(itemIndex, 1);
-          }
-        });
-
-        orderedItems.push(...remainingItems);
-        organized[tierId] = orderedItems;
-      }
-    });
-
-    return organized;
+    // 7. Émettre l'événement collaboratif avec la position finale
+    if (onTierChange) {
+      const finalOrder = newTierOrders.get(tierId) || [];
+      const finalPosition = finalOrder.indexOf(draggedItemRef.id);
+      onTierChange(draggedItemRef.id, tierId, finalPosition);
+    }
   };
 
   // Basculer le mode édition
@@ -529,13 +449,17 @@ export default function TierList({
   };
 
   // Gérer le déclassement d'un item (équivalent à un drag vers "unranked")
-  const handleItemUnrank = (item) => {
+  const handleItemUnrank = (itemId) => {
+    // Trouver l'objet item complet à partir de l'ID
+    const item = items.find(i => i.id === itemId);
+    if (!item) return;
+
     const currentTier = tierAssignments.get(item.id);
 
     if (!currentTier) {
       // L'item est déjà non classé, on appelle la suppression complète
       if (onItemDelete) {
-        onItemDelete(item);
+        onItemDelete(item.id);
       }
       return;
     }
@@ -556,10 +480,8 @@ export default function TierList({
     updateTierAssignments(newAssignments);
     updateTierOrders(newTierOrders);
 
-    // Notifier les changements d'ordre
-    if (onTierOrdersChange) {
-      onTierOrdersChange(newTierOrders);
-    }
+    // Les changements d'ordre sont déjà notifiés par updateTierOrders
+    // Pas besoin de double notification
 
     // Calculer la position finale dans "unranked" (à la fin)
     const unrankedItems = organizedItems.unranked || [];
@@ -575,7 +497,7 @@ export default function TierList({
   const firstUnrankedItem = organizedItems.unranked?.[0];
 
   return (
-    <div className={styles.tierListContainer}>
+    <div className={`${styles.tierListContainer} ${draggedItem ? styles.dragging : ''}`}>
       <div className={styles.tierList}>
         {/* Header avec bouton d'ajout et mode édition */}
         <div className={styles.tierHeader}>
@@ -604,7 +526,7 @@ export default function TierList({
           <div
             key={tier.id}
             className={styles.tierRow}
-            onDragOver={handleDragOver}
+            onDragOver={(e) => handleDragOverTier(e, tier.id)}
             onDrop={(e) => handleDrop(e, tier.id)}
             data-tier={tier.id}
           >
@@ -670,7 +592,11 @@ export default function TierList({
                   <div
                     key={item.id}
                     className={`${styles.itemCardWrapper} ${item.isPlaceholder ? styles.placeholder : ""
-                      } ${draggedItem?.id === item.id ? styles.dragging : ""}`}
+                      } ${draggedItem?.id === item.id ? styles.dragging : ""} ${(() => {
+                        const { isAncienEmplacementVisible } = getItemDisplayState(item);
+                        return !isAncienEmplacementVisible ? styles.ancienEmplacementInvisible : "";
+                      })()
+                      }`}
                     onDragOver={(e) =>
                       !item.isPlaceholder &&
                       handleDragOverItem(e, item, tier.id)
@@ -686,13 +612,20 @@ export default function TierList({
                         />
                       </div>
                     ) : (
-                      <ItemCard
-                        item={item}
-                        tier={tier.id}
-                        onDragStart={handleDragStart}
-                        onDragEnd={handleDragEnd}
-                        onDelete={handleItemUnrank}
-                      />
+                      (() => {
+                        const { isAncienEmplacement, isAncienEmplacementVisible } = getItemDisplayState(item);
+                        return (
+                          <ItemCard
+                            item={item}
+                            tier={tier.id}
+                            onDragStart={handleDragStart}
+                            onDragEnd={handleDragEnd}
+                            onDelete={handleItemUnrank}
+                            isAncienEmplacement={isAncienEmplacement}
+                            isAncienEmplacementVisible={isAncienEmplacementVisible}
+                          />
+                        );
+                      })()
                     )}
                   </div>
                 ))
@@ -725,7 +658,7 @@ export default function TierList({
         {/* Section des items non classés */}
         <div
           className={`${styles.tierRow} ${styles.unrankedRow}`}
-          onDragOver={handleDragOver}
+          onDragOver={(e) => handleDragOverTier(e, "unranked")}
           onDrop={(e) => handleDrop(e, "unranked")}
         >
           <div className={styles.tierLabel}>
@@ -741,7 +674,11 @@ export default function TierList({
                 <div
                   key={item.id}
                   className={`${styles.itemCardWrapper} ${item.isPlaceholder ? styles.placeholder : ""
-                    } ${draggedItem?.id === item.id ? styles.dragging : ""}`}
+                    } ${draggedItem?.id === item.id ? styles.dragging : ""} ${(() => {
+                      const { isAncienEmplacementVisible } = getItemDisplayState(item);
+                      return !isAncienEmplacementVisible ? styles.ancienEmplacementInvisible : "";
+                    })()
+                    }`}
                   onDragOver={(e) =>
                     !item.isPlaceholder &&
                     handleDragOverItem(e, item, "unranked")
@@ -753,12 +690,19 @@ export default function TierList({
                       <ItemCard item={item.draggedItem} isPreview={true} />
                     </div>
                   ) : (
-                    <ItemCard
-                      item={item}
-                      onDragStart={handleDragStart}
-                      onDragEnd={handleDragEnd}
-                      onDelete={onItemDelete}
-                    />
+                    (() => {
+                      const { isAncienEmplacement, isAncienEmplacementVisible } = getItemDisplayState(item);
+                      return (
+                        <ItemCard
+                          item={item}
+                          onDragStart={handleDragStart}
+                          onDragEnd={handleDragEnd}
+                          onDelete={onItemDelete}
+                          isAncienEmplacement={isAncienEmplacement}
+                          isAncienEmplacementVisible={isAncienEmplacementVisible}
+                        />
+                      );
+                    })()
                   )}
                 </div>
               ))
@@ -812,13 +756,20 @@ export default function TierList({
 
             {previewOpen && (
               <div className={styles.previewItem}>
-                <ItemCard
-                  item={firstUnrankedItem}
-                  onDragStart={handleDragStart}
-                  onDragEnd={handleDragEnd}
-                  onDelete={onItemDelete}
-                  isPreviewPanel={true}
-                />
+                {(() => {
+                  const { isAncienEmplacement, isAncienEmplacementVisible } = getItemDisplayState(firstUnrankedItem);
+                  return (
+                    <ItemCard
+                      item={firstUnrankedItem}
+                      onDragStart={handleDragStart}
+                      onDragEnd={handleDragEnd}
+                      onDelete={onItemDelete}
+                      isPreviewPanel={true}
+                      isAncienEmplacement={isAncienEmplacement}
+                      isAncienEmplacementVisible={isAncienEmplacementVisible}
+                    />
+                  );
+                })()}
                 {/* Ajout des infos de l'item */}
                 <div className={styles.itemInfo}>
                   <h4 className={styles.itemTitle}>

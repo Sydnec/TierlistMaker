@@ -179,9 +179,11 @@ export default function TierlistPage() {
     }, [mounted, setEventListeners]);
 
     // Fonctions de gestion (similaires à l'ancienne page.js)
-    const handleTierChange = async (itemId, newTier, oldTier) => {
-        console.log("🎯 handleTierChange:", { itemId, newTier, oldTier });
+    const handleTierChange = async (itemId, newTier, position) => {
+        // Calculer l'ancien tier avant modification
+        const oldTier = tierAssignments.get(itemId) || 'unranked';
 
+        // Mettre à jour l'état local des assignments
         setTierAssignments(prevAssignments => {
             const newAssignments = new Map(prevAssignments);
             if (newTier === 'unranked') {
@@ -192,6 +194,7 @@ export default function TierlistPage() {
             return newAssignments;
         });
 
+        // Émettre l'événement collaboratif avec l'ancien tier calculé
         emitItemMove(itemId, newTier, oldTier);
 
         try {
@@ -200,7 +203,9 @@ export default function TierlistPage() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     item_id: itemId,
+                    old_tier_id: oldTier === 'unranked' ? null : oldTier,
                     tier_id: newTier === 'unranked' ? null : newTier,
+                    position: position // Inclure la position dans la requête
                 }),
             });
 
@@ -236,6 +241,7 @@ export default function TierlistPage() {
     };
 
     const handleTierOrdersChange = async (tierId, newOrder) => {
+        // Mettre à jour l'état local
         setTierOrders(prevOrders => {
             const newOrders = new Map(prevOrders);
             newOrders.set(tierId, newOrder);
@@ -248,9 +254,13 @@ export default function TierlistPage() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     tier_id: tierId,
-                    item_order: JSON.stringify(newOrder),
+                    item_order: newOrder,
                 }),
             });
+
+            if (!response.ok) {
+                console.error('❌ Erreur sauvegarde ordre:', response.statusText);
+            }
         } catch (error) {
             console.error('❌ Erreur réseau sauvegarde ordre:', error);
         }
@@ -287,12 +297,15 @@ export default function TierlistPage() {
 
     // Fonction de partage unifiée
     const handleShare = async () => {
+        // S'assurer qu'on est côté client
+        if (typeof window === 'undefined') return;
+
         // L'URL actuelle utilise déjà le share code
         const shareUrl = window.location.href;
 
         try {
             // Vérifier si navigator.clipboard est disponible
-            if (navigator.clipboard && window.isSecureContext) {
+            if (typeof navigator !== 'undefined' && navigator.clipboard && window.isSecureContext) {
                 await navigator.clipboard.writeText(shareUrl);
             } else {
                 // Fallback pour navigateurs non-sécurisés ou sans API Clipboard
@@ -397,7 +410,7 @@ export default function TierlistPage() {
         }
     };
 
-    if (loading) {
+    if (loading || !mounted) {
         return (
             <div className={styles.loading}>
                 <div className={styles.spinner}></div>
@@ -449,12 +462,10 @@ export default function TierlistPage() {
                 </div>
             </div>
 
-            {mounted && (
-                <CollaborativeStatus
-                    isConnected={isConnected}
-                    connectedUsers={connectedUsers}
-                />
-            )}
+            <CollaborativeStatus
+                isConnected={isConnected}
+                connectedUsers={connectedUsers}
+            />
 
             <TierList
                 items={allItems}

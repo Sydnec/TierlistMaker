@@ -242,26 +242,36 @@ app.prepare().then(async () => {
             }
         });
 
-        // Suppression d'un item
-        socket.on("item-delete", async (itemId) => {
+        // Suppression d'un item (NOTIFICATION SEULEMENT - pas de suppression DB)
+        socket.on("item-delete", async (data) => {
             if (!socket.tierlistId) return;
+
+            // Extraire itemId depuis l'objet reçu
+            const itemId = typeof data === 'object' ? data.itemId : data;
+
+            if (!itemId) {
+                console.error("❌ itemId manquant dans l'événement item-delete:", data);
+                return;
+            }
 
             const room = getTierlistRoom(socket.tierlistId);
 
-            console.log(`Suppression de l'item ${itemId} dans tierlist ${socket.tierlistId}`);
+            console.log(`📡 Notification suppression item ${itemId} dans tierlist ${socket.tierlistId}`);
 
             try {
-                await db.deleteItem(itemId);
+                // PLUS de suppression en base - seulement notification collaborative
+                // La suppression en base est déjà faite par l'API REST
 
                 // Met à jour l'état en mémoire de la room
                 room.items = room.items.filter((item) => item.id !== itemId);
                 delete room.tierAssignments[itemId];
                 room.lastModified = Date.now();
 
-                // Notifie tous les clients de cette tierlist
-                io.to(`tierlist-${socket.tierlistId}`).emit("item-deleted", itemId);
+                // Notifie SEULEMENT les autres clients de cette tierlist (pas l'expéditeur)
+                socket.to(`tierlist-${socket.tierlistId}`).emit("item-deleted", itemId);
+                console.log(`✅ Notification suppression envoyée aux autres clients pour item ${itemId}`);
             } catch (error) {
-                console.error("❌ Erreur lors de la suppression de l'item:", error);
+                console.error("❌ Erreur lors de la notification de suppression:", error);
             }
         });
 
