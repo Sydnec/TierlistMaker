@@ -2,6 +2,7 @@
 
 import { useState, useRef } from "react";
 import styles from "./ItemUpload.module.css";
+import { cleanFileName, getFileNameWithoutExtension, generateImagePath } from '../utils/fileUtils';
 
 export default function ItemUpload({ onItemsAdded, existingItems = [], tierlistId }) {
     const [isDragOver, setIsDragOver] = useState(false);
@@ -42,8 +43,8 @@ export default function ItemUpload({ onItemsAdded, existingItems = [], tierlistI
 
     const processImages = (files) => {
         const items = files.map(file => {
-            const nameWithoutExt = file.name.replace(/\.[^/.]+$/, "");
-            const imagePath = `images/${file.name}`;
+            const nameWithoutExt = getFileNameWithoutExtension(file.name);
+            const imagePath = generateImagePath(file.name);
             const imageUrl = URL.createObjectURL(file);
 
             return {
@@ -170,8 +171,8 @@ export default function ItemUpload({ onItemsAdded, existingItems = [], tierlistI
     };
 
     const replaceItemImage = (index, file) => {
-        const nameWithoutExt = file.name.replace(/\.[^/.]+$/, "");
-        const imagePath = `images/${file.name}`;
+        const nameWithoutExt = getFileNameWithoutExtension(file.name);
+        const imagePath = generateImagePath(file.name);
 
         // Révoquer l'ancienne URL si elle existe
         const oldItem = pendingItems[index];

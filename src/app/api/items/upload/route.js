@@ -4,6 +4,7 @@ import { existsSync } from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import Database from '../../../../database/db.js';
+import { cleanFileName } from '../../../../utils/fileUtils.js';
 
 // Fonction pour calculer le hash MD5 d'un buffer
 function calculateHash(buffer) {
@@ -27,7 +28,8 @@ async function findExistingFileByHash(buffer, imagesDir) {
 
                 if (hash === existingHash) {
                     console.log(`🔍 Fichier identique trouvé: ${fileName}`);
-                    return `images/${fileName}`;
+                    // Assurer qu'il n'y a pas d'espaces dans le chemin retourné
+                    return `images/${cleanFileName(fileName)}`;
                 }
             } catch (err) {
                 // Ignorer les erreurs de lecture de fichier
@@ -102,8 +104,8 @@ export async function POST(request) {
                     console.log(`♻️ Réutilisation du fichier existant: ${existingFilePath}`);
                     finalImagePath = existingFilePath;
                 } else {
-                    // Générer un nom de fichier unique si nécessaire
-                    const originalName = file.name;
+                    // Générer un nom de fichier unique si nécessaire (sans espaces)
+                    const originalName = cleanFileName(file.name); // Nettoyer le nom de fichier
                     const extension = path.extname(originalName);
                     const nameWithoutExt = path.basename(originalName, extension);
 

@@ -40,7 +40,7 @@ export default function ItemCard({
     >
       <div className={styles.imageContainer}>
         <img
-          src={item.image || "/placeholder-item.svg"}
+          src={item.image ? (item.image.startsWith('/') ? item.image : `/${item.image}`) : "/placeholder-item.svg"}
           alt={item.name}
           className={styles.image}
           loading="lazy"
