@@ -29,6 +29,30 @@ const loadFromLocalStorage = () => {
   };
 };
 
+// Clé localStorage pour l'identifiant client unique
+const CLIENT_ID_KEY = 'tierlist-maker-client-id';
+
+function getOrCreateClientId() {
+  try {
+    if (typeof window === 'undefined' || !window.localStorage) return null;
+    let id = localStorage.getItem(CLIENT_ID_KEY);
+    if (!id) {
+      // Utiliser crypto.randomUUID si disponible, sinon fallback
+      if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+        id = crypto.randomUUID();
+      } else {
+        id = `cid-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      }
+      localStorage.setItem(CLIENT_ID_KEY, id);
+      console.log('Generated new clientId for WS:', id);
+    }
+    return id;
+  } catch (err) {
+    console.error('Erreur getOrCreateClientId:', err);
+    return null;
+  }
+}
+
 export function useCollaborativeState(tierlistId) {
   const [mounted, setMounted] = useState(false);
   const [socket, setSocket] = useState(null);
@@ -85,10 +109,15 @@ export function useCollaborativeState(tierlistId) {
 
     console.log("Tentative de connexion Socket.io...");
 
+    // Récupérer / créer un clientId stable par navigateur
+    const clientId = getOrCreateClientId();
+
     // Initialise la connexion Socket.io
     const socketInstance = io({
       autoConnect: true,
       transports: ["websocket", "polling"],
+      // Fournir clientId pour garantir 1 connexion par navigateur
+      auth: { clientId },
       timeout: 20000,
       reconnection: true,
       reconnectionDelay: 1000,
