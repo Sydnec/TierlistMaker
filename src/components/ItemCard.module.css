@@ -48,12 +48,16 @@
   height: 100%;
   overflow: hidden;
   border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .image {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  object-position: center center;
   user-select: none;
   -webkit-user-select: none;
   -moz-user-select: none;
@@ -111,8 +115,11 @@
 
 /* Masquer les effets hover pour les cartes dans le panneau de prévisualisation */
 .card.previewPanel {
-  scale: 1.2;
+  transform: scale(1.2);
   margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 /* Masquer les effets hover pour les cartes dans le panneau de prévisualisation */

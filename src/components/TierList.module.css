@@ -758,6 +758,10 @@
   padding: 20px 10px 15px 30px;
   height: 100%;
   overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center; /* centre les ItemCard enfants */
+  gap: 12px;
 }
 
 .previewHeader {
