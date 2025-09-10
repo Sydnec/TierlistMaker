@@ -68,6 +68,8 @@ export function useCollaborativeState(tierlistId) {
   const stateRef = useRef(collaborativeState);
   const listenersRef = useRef({});
   const tierlistIdRef = useRef(tierlistId);
+  // Ref pour savoir quelle tierlist on a join afin d'envoyer un leave propre
+  const joinedTierlistRef = useRef(null);
 
   // Charge l'état depuis localStorage au montage
   useEffect(() => {
@@ -94,12 +96,24 @@ export function useCollaborativeState(tierlistId) {
 
   // Gérer les changements de tierlistId
   useEffect(() => {
+    const previous = tierlistIdRef.current;
     tierlistIdRef.current = tierlistId;
 
-    // Si on est déjà connecté et qu'on change de tierlist, rejoindre la nouvelle
-    if (socket && isConnected && tierlistId) {
-      console.log(`Changement de tierlist vers: ${tierlistId}`);
-      socket.emit("join-tierlist", tierlistId);
+    // Si on est déjà connecté et qu'on change de tierlist, quitter l'ancienne puis rejoindre la nouvelle
+    if (socket && isConnected) {
+      if (previous && previous !== tierlistId) {
+        try {
+          console.log(`Leaving previous tierlist ${previous} before joining ${tierlistId}`);
+          socket.emit('leave-tierlist', previous);
+          joinedTierlistRef.current = null;
+        } catch (e) { /* ignore */ }
+      }
+
+      if (tierlistId) {
+        console.log(`Changement de tierlist vers: ${tierlistId}`);
+        socket.emit("join-tierlist", tierlistId);
+        joinedTierlistRef.current = tierlistId;
+      }
     }
   }, [tierlistId, socket, isConnected]);
 
@@ -133,6 +147,7 @@ export function useCollaborativeState(tierlistId) {
       if (tierlistIdRef.current) {
         console.log(`Rejoint la tierlist: ${tierlistIdRef.current}`);
         socketInstance.emit("join-tierlist", tierlistIdRef.current);
+        joinedTierlistRef.current = tierlistIdRef.current;
       }
     });
 
@@ -156,6 +171,17 @@ export function useCollaborativeState(tierlistId) {
         tierOrders: state.tierOrders || {},
       });
     });
+
+    // Essayer d'émettre un leave propre à la fermeture de l'onglet / rafraîchissement
+    const handleBeforeUnload = () => {
+      try {
+        if (joinedTierlistRef.current) {
+          socketInstance.emit('leave-tierlist', joinedTierlistRef.current);
+        }
+        socketInstance.emit('leave-hub');
+      } catch (e) { /* ignore */ }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
 
     // Réception de l'état spécifique à la tierlist
     socketInstance.on("tierlist-state", (state) => {
@@ -344,6 +370,19 @@ export function useCollaborativeState(tierlistId) {
     setSocket(socketInstance);
 
     return () => {
+      try {
+        // Tenter un leave explicite pour que le serveur décrémente proprement
+        if (socketInstance && socketInstance.connected) {
+          if (joinedTierlistRef.current) {
+            try { socketInstance.emit('leave-tierlist', joinedTierlistRef.current); } catch (e) {}
+            joinedTierlistRef.current = null;
+          }
+          try { socketInstance.emit('leave-hub'); } catch (e) {}
+        }
+      } catch (e) { /* ignore */ }
+
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+
       socketInstance.disconnect();
     };
   }, [mounted]);
