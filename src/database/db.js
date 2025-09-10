@@ -56,7 +56,7 @@ class Database {
   createTables() {
     console.log("📋 Création/vérification des tables...");
 
-    // Table pour les tierlists
+    // Table pour les tierlists (attention: plus de colonne is_public)
     this.db.run(
       `
       CREATE TABLE IF NOT EXISTS tierlists (
@@ -64,7 +64,6 @@ class Database {
         name TEXT NOT NULL,
         description TEXT,
         share_code TEXT UNIQUE,
-        is_public INTEGER DEFAULT 0,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
       )
@@ -74,15 +73,7 @@ class Database {
           console.error("❌ Erreur création table tierlists:", err);
         } else {
           console.log("✅ Table tierlists créée/vérifiée avec succès");
-          // Migration pour ajouter is_public aux tables existantes
-          this.db.run(
-            `ALTER TABLE tierlists ADD COLUMN is_public INTEGER DEFAULT 0`,
-            (err) => {
-              if (err && !err.message.includes('duplicate column')) {
-                console.error("❌ Erreur migration is_public:", err);
-              }
-            }
-          );
+          // Ne pas ajouter la colonne is_public ici - elle est retirée
         }
       }
     );
@@ -146,7 +137,90 @@ class Database {
     );
 
     // Migration des données existantes et nettoyage des tables redondantes
-    this.migrateToSimplifiedStructure();
+    this.migrateToSimplifiedStructure()
+      .then(() => this.removeIsPublicColumnIfPresent())
+      .catch((e) => console.warn('⚠️ Erreur durant les migrations:', e));
+  }
+
+  // Migration sûre pour supprimer la colonne is_public si elle existe
+  async removeIsPublicColumnIfPresent() {
+    return new Promise((resolve) => {
+      try {
+        this.db.all("PRAGMA table_info('tierlists')", [], (err, rows) => {
+          if (err) {
+            console.warn('⚠️ Impossible de vérifier les colonnes de tierlists:', err.message);
+            resolve();
+            return;
+          }
+
+          const hasIsPublic = rows && rows.some(r => r.name === 'is_public');
+          if (!hasIsPublic) {
+            console.log('ℹ️ Colonne is_public absente — aucune migration nécessaire');
+            resolve();
+            return;
+          }
+
+          console.log('🔧 Migration: suppression de la colonne is_public de tierlists');
+          this.db.exec('PRAGMA foreign_keys=OFF; BEGIN TRANSACTION;', (pragmaErr) => {
+            if (pragmaErr) {
+              console.error('❌ Erreur démarrage transaction migration is_public:', pragmaErr);
+              resolve();
+              return;
+            }
+
+            // Créer une table temporaire sans is_public
+            this.db.run(
+              `CREATE TABLE IF NOT EXISTS _tierlists_new (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                description TEXT,
+                share_code TEXT UNIQUE,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+              )`,
+              (createErr) => {
+                if (createErr) {
+                  console.error('❌ Erreur création table temporaire:', createErr);
+                  this.db.exec('ROLLBACK; PRAGMA foreign_keys=ON;', () => resolve());
+                  return;
+                }
+
+                // Copier les données (en ignorant is_public)
+                this.db.run(
+                  `INSERT OR REPLACE INTO _tierlists_new (id, name, description, share_code, created_at, updated_at)
+                   SELECT id, name, description, share_code, created_at, updated_at FROM tierlists`,
+                  (copyErr) => {
+                    if (copyErr) {
+                      console.error('❌ Erreur copie données tierlists:', copyErr);
+                      this.db.exec('ROLLBACK; PRAGMA foreign_keys=ON;', () => resolve());
+                      return;
+                    }
+
+                    // Remplacer l'ancienne table
+                    this.db.run('DROP TABLE IF EXISTS tierlists', (dropErr) => {
+                      if (dropErr) console.error('❌ Erreur suppression ancienne table tierlists:', dropErr);
+
+                      this.db.run('ALTER TABLE _tierlists_new RENAME TO tierlists', (renameErr) => {
+                        if (renameErr) console.error('❌ Erreur renommage table temporaire:', renameErr);
+
+                        this.db.exec('COMMIT; PRAGMA foreign_keys=ON;', (commitErr) => {
+                          if (commitErr) console.error('❌ Erreur commit migration is_public:', commitErr);
+                          else console.log('✅ Migration is_public terminée avec succès');
+                          resolve();
+                        });
+                      });
+                    });
+                  }
+                );
+              }
+            );
+          });
+        });
+      } catch (e) {
+        console.error('❌ Exception durant removeIsPublicColumnIfPresent:', e);
+        resolve();
+      }
+    });
   }
 
   // Méthodes pour les items
@@ -332,8 +406,9 @@ class Database {
                       "UPDATE tiers SET item_order = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
                       [JSON.stringify(filteredOrder), tier.id],
                       function (updateErr) {
-                        if (updateErr) updateRej(updateErr);
-                        else {
+                        if (updateErr) {
+                          updateRej(updateErr);
+                        } else {
                           totalChanges += this.changes;
                           updateRes();
                         }
@@ -752,19 +827,19 @@ class Database {
     console.log("🗃️ Database.createTierlist appelée avec:", tierlistData);
 
     return new Promise((resolve, reject) => {
-      const { id, name, description = null, share_code, is_public = 0 } = tierlistData;
+      const { id, name, description = null, share_code } = tierlistData;
 
       this.db.run(
-        `INSERT INTO tierlists (id, name, description, share_code, is_public, updated_at)
-         VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
-        [id, name, description, share_code, is_public],
+        `INSERT INTO tierlists (id, name, description, share_code, updated_at)
+         VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+        [id, name, description, share_code],
         function (err) {
           if (err) {
             console.error("🗃️ Erreur SQL dans createTierlist:", err);
             reject(err);
           } else {
             console.log("🗃️ Tierlist créée en base - lastID:", this.lastID);
-            resolve({ id, name, description, share_code, is_public });
+            resolve({ id, name, description, share_code });
           }
         }
       );
@@ -776,7 +851,7 @@ class Database {
 
     return new Promise((resolve, reject) => {
       this.db.all(
-        "SELECT * FROM tierlists WHERE is_public = 1 ORDER BY updated_at DESC",
+        "SELECT * FROM tierlists ORDER BY updated_at DESC",
         [],
         (err, rows) => {
           if (err) {
@@ -878,21 +953,9 @@ class Database {
   async deleteTierlist(tierlistId) {
     console.log("🗃️ Database.deleteTierlist appelée avec:", tierlistId);
 
-    return new Promise((resolve, reject) => {
-      this.db.run(
-        "DELETE FROM tierlists WHERE id = ?",
-        [tierlistId],
-        function (err) {
-          if (err) {
-            console.error("🗃️ Erreur SQL dans deleteTierlist:", err);
-            reject(err);
-          } else {
-            console.log("🗃️ Tierlist supprimée - changes:", this.changes);
-            resolve({ changes: this.changes });
-          }
-        }
-      );
-    });
+    // Désactivée pour protéger les tierlists (elles sont maintenant permanentes)
+    console.log('⚠️ deleteTierlist appelé mais opération désactivée — aucun changement effectué');
+    return { changes: 0 };
   }
 
   async duplicateTierlist(sourceTierlistId, newTierlistData) {

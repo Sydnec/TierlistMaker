@@ -87,20 +87,8 @@ export async function PUT(request, { params }) {
 // DELETE /api/tierlists/[id] - Supprimer une tierlist
 export async function DELETE(request, { params }) {
     try {
-        const { id } = await params;
-        const tierlistId = id;
-
-        const tierlist = await db.getTierlistById(tierlistId);
-        if (!tierlist) {
-            return NextResponse.json(
-                { error: "Tierlist non trouvée" },
-                { status: 404 }
-            );
-        }
-
-        await db.deleteTierlist(tierlistId);
-
-        return NextResponse.json({ message: "Tierlist supprimée avec succès" });
+        // Suppression désactivée : les tierlists ne peuvent pas être supprimées
+        return NextResponse.json({ success: false, error: "Suppression de tierlists désactivée" }, { status: 403 });
     } catch (error) {
         console.error("Erreur suppression tierlist:", error);
         return NextResponse.json(

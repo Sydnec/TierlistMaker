@@ -37,7 +37,7 @@ export async function POST(request) {
         console.log("🌐 API: POST /api/tierlists");
 
         const body = await request.json();
-        const { name, description, is_public } = body;
+        const { name, description } = body;
 
         if (!name || !name.trim()) {
             return NextResponse.json(
@@ -51,7 +51,7 @@ export async function POST(request) {
             name: name.trim(),
             description: description?.trim() || null,
             share_code: generateShareCode(),
-            is_public: is_public || 0
+            // Note: all tierlists are public by design; is_public column retired
         };
 
         const createdTierlist = await db.createTierlist(tierlistData);
@@ -77,20 +77,18 @@ export async function POST(request) {
 
         console.log("✅ Tierlist créée:", createdTierlist.id);
 
-        // Notifier les utilisateurs connectés au hub de la nouvelle tierlist (si publique)
-        if (createdTierlist.is_public) {
-            try {
-                await fetch('http://localhost:3000/api/tierlists/notify', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ tierlist: createdTierlist })
-                });
-                console.log('🔔 Notification hub envoyée pour nouvelle tierlist publique');
-            } catch (notifyError) {
-                console.warn('⚠️ Erreur notification hub:', notifyError.message);
-            }
+        // Notifier le hub (toutes les tierlists sont publiques désormais)
+        try {
+            await fetch('http://localhost:3000/api/tierlists/notify', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ tierlist: createdTierlist })
+            });
+            console.log('🔔 Notification hub envoyée pour nouvelle tierlist');
+        } catch (notifyError) {
+            console.warn('⚠️ Erreur notification hub:', notifyError.message);
         }
 
         return NextResponse.json({

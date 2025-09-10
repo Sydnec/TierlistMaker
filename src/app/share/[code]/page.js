@@ -75,7 +75,7 @@ export default function ShareCodePage() {
                     cursor: 'pointer'
                 }}
             >
-                Retour à l'accueil
+                Retour à l&apos;accueil
             </button>
         </div>
     );

@@ -16,7 +16,7 @@ export async function POST(request) {
         // Utiliser la fonction globale directement
         if (typeof global.notifyHubNewTierlist === 'function') {
             global.notifyHubNewTierlist(tierlist);
-            console.log('✅ Notification Socket.io envoyée au hub depuis API');
+            console.log('✅ Notification Socket.io envoyée au hub depuis API (inconditionnelle)');
         } else {
             console.warn('⚠️ Fonction notifyHubNewTierlist non disponible');
         }

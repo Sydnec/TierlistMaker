@@ -128,6 +128,8 @@ app.prepare().then(async () => {
       global.notifyHubNewTierlist = wsApi.notifyHubNewTierlist;
     }
 
+    console.log('ℹ️ Si vous migrez une BDD existante pour retirer la colonne is_public, utilisez scripts/remove-is-public-column.js');
+
   } catch (err) {
     console.error('❌ Erreur lors de l\'initialisation du module WS:', err);
   }

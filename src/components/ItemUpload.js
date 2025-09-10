@@ -3,6 +3,7 @@
 import { useState, useRef } from "react";
 import styles from "./ItemUpload.module.css";
 import { cleanFileName, getFileNameWithoutExtension, generateImagePath } from '../utils/fileUtils';
+import Image from 'next/image';
 
 export default function ItemUpload({ onItemsAdded, existingItems = [], tierlistId }) {
     const [isDragOver, setIsDragOver] = useState(false);
@@ -321,7 +322,7 @@ export default function ItemUpload({ onItemsAdded, existingItems = [], tierlistI
                         <div className={styles.uploadText}>
                             <p>Cliquez ou glissez des images ici</p>
                             <p className={styles.uploadSubtext}>
-                                PNG, JPG, GIF jusqu'à 10MB
+                                PNG, JPG, GIF jusqu&apos;à 10MB
                             </p>
                         </div>
                     </div>
@@ -368,16 +369,19 @@ export default function ItemUpload({ onItemsAdded, existingItems = [], tierlistI
                                         <div className={styles.itemPreview}>
                                             <div>
                                                 {item.file && item.imageUrl && (
-                                                    <img
+                                                    <Image
                                                         key={item.imageKey} // Utilisez la clé pour forcer le re-rendu
                                                         src={item.imageUrl}
                                                         alt="Preview"
                                                         className={styles.imagePreview}
+                                                        width={120}
+                                                        height={120}
+                                                        unoptimized
                                                     />
                                                 )}
                                                 {!item.file && (
                                                     <div className={styles.noImage}>
-                                                        🖼️ Pas d'image
+                                                        🖼️ Pas d&apos;image
                                                     </div>
                                                 )}
                                             </div>
@@ -385,7 +389,7 @@ export default function ItemUpload({ onItemsAdded, existingItems = [], tierlistI
                                             <button
                                                 className={styles.replaceImageButton}
                                                 onClick={() => handleImageReplace(index)}
-                                                title="Remplacer l'image"
+                                                title="Remplacer l&apos;image"
                                             >
                                                 📁 Changer
                                             </button>
@@ -398,7 +402,7 @@ export default function ItemUpload({ onItemsAdded, existingItems = [], tierlistI
                                                     type="text"
                                                     value={item.name}
                                                     onChange={(e) => updatePendingItem(index, 'name', e.target.value)}
-                                                    placeholder="Nom de l'élément"
+                                                    placeholder="Nom de l&apos;élément"
                                                     required
                                                 />
                                             </div>
@@ -503,10 +507,13 @@ export default function ItemUpload({ onItemsAdded, existingItems = [], tierlistI
                                                 <div className={styles.itemPreview}>
                                                     <div>
                                                         {item.file && item.imageUrl && (
-                                                            <img
+                                                            <Image
                                                                 src={item.imageUrl}
                                                                 alt="Nouveau"
                                                                 className={styles.imagePreview}
+                                                                width={120}
+                                                                height={120}
+                                                                unoptimized
                                                             />
                                                         )}
                                                     </div>
@@ -518,7 +525,7 @@ export default function ItemUpload({ onItemsAdded, existingItems = [], tierlistI
                                                             type="text"
                                                             value={item.name}
                                                             onChange={(e) => updateDuplicateItem(index, 'name', e.target.value)}
-                                                            placeholder="Nom de l'élément"
+                                                            placeholder="Nom de l&apos;élément"
                                                         />
                                                     </div>
                                                     <div className={styles.field}>
@@ -541,7 +548,7 @@ export default function ItemUpload({ onItemsAdded, existingItems = [], tierlistI
                                                 <p><strong>Description:</strong> {item.existingItem.description || 'Aucune'}</p>
                                                 {item.existingItem.image && (
                                                     <div className={styles.existingImage}>
-                                                        <img src={`/${item.existingItem.image}`} alt="Existant" />
+                                                        <Image src={`/${item.existingItem.image}`} alt="Existant" width={120} height={120} unoptimized />
                                                     </div>
                                                 )}
                                             </div>

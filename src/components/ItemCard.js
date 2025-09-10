@@ -1,4 +1,5 @@
 import styles from "./ItemCard.module.css";
+import Image from 'next/image';
 
 export default function ItemCard({
   item,
@@ -86,17 +87,19 @@ export default function ItemCard({
   return (
     <div
       className={getCardClasses()}
-      draggable={isPreview ? "false" : "true"}
+      draggable={!isPreview}
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
       title={item.name}
     >
       <div className={styles.imageContainer}>
-        <img
+        <Image
           src={item.image ? (item.image.startsWith('/') ? item.image : `/${item.image}`) : "/placeholder-item.svg"}
           alt={item.name}
           className={styles.image}
-          loading="lazy"
+          width={120}
+          height={120}
+          unoptimized
         />
         {!isPreview && !isPreviewPanel && onDelete && (
           <button
@@ -114,6 +117,6 @@ export default function ItemCard({
         <div className={styles.title}>{item.name}</div>
         {item.year && <div className={styles.year}>({item.year})</div>}
       </div>
-    </div>
+    </div >
   );
 }

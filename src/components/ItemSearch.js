@@ -2,6 +2,7 @@
 
 import { useState, useRef } from "react";
 import { MALService } from "../utils/malService";
+import Image from 'next/image';
 import styles from "./ItemSearch.module.css";
 
 export default function ItemSearch({
@@ -400,13 +401,16 @@ export default function ItemSearch({
                         }`}
                       onClick={() => handleAddItem(item)}
                     >
-                      <img
+                      <Image
                         src={
                           item.images?.jpg?.small_image_url ||
                           "/placeholder-item.svg"
                         }
                         alt={item.title}
                         className={styles.resultImage}
+                        width={64}
+                        height={64}
+                        unoptimized
                       />
                       <div className={styles.resultInfo}>
                         <h4>{item.title}</h4>
@@ -442,10 +446,13 @@ export default function ItemSearch({
                   {addNotification.message}
                 </div>
                 {addNotification.item.image && addNotification.item.image !== "/placeholder-item.svg" && (
-                  <img
+                  <Image
                     src={addNotification.item.image}
                     alt={addNotification.item.title}
                     className={styles.notificationImage}
+                    width={64}
+                    height={64}
+                    unoptimized
                   />
                 )}
               </div>

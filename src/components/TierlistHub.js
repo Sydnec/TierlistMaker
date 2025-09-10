@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import io from "socket.io-client";
 import styles from "./TierlistHub.module.css";
@@ -12,11 +12,10 @@ export default function TierlistHub() {
     const [showCreateModal, setShowCreateModal] = useState(false);
     const [newTierlistName, setNewTierlistName] = useState("");
     const [newTierlistDescription, setNewTierlistDescription] = useState("");
-    const [newTierlistIsPublic, setNewTierlistIsPublic] = useState(false);
     const [createLoading, setCreateLoading] = useState(false);
 
     // Socket.io state
-    const [socket, setSocket] = useState(null);
+    const socketRef = useRef(null);
     const [isConnected, setIsConnected] = useState(false);
 
     useEffect(() => {
@@ -24,10 +23,11 @@ export default function TierlistHub() {
         setupSocket();
 
         return () => {
-            if (socket) {
+            const s = socketRef.current;
+            if (s) {
                 console.log("🔌 Déconnexion Socket.io hub");
-                socket.emit("leave-hub");
-                socket.disconnect();
+                s.emit("leave-hub");
+                s.disconnect();
             }
         };
     }, []);
@@ -54,20 +54,15 @@ export default function TierlistHub() {
         newSocket.on("new-tierlist", (tierlist) => {
             console.log("🔔 Nouvelle tierlist reçue:", tierlist.name);
 
-            // Ajouter la nouvelle tierlist à la liste (seulement si elle est publique)
-            if (tierlist.is_public) {
-                setTierlists(prevTierlists => {
-                    // Vérifier si elle n'existe pas déjà
-                    const exists = prevTierlists.some(existing => existing.id === tierlist.id);
-                    if (exists) return prevTierlists;
-
-                    // Ajouter au début de la liste
-                    return [tierlist, ...prevTierlists];
-                });
-            }
+            // Ajouter la nouvelle tierlist à la liste (toutes les tierlists sont publiques désormais)
+            setTierlists(prevTierlists => {
+                const exists = prevTierlists.some(existing => existing.id === tierlist.id);
+                if (exists) return prevTierlists;
+                return [tierlist, ...prevTierlists];
+            });
         });
 
-        setSocket(newSocket);
+        socketRef.current = newSocket;
     };
 
     const loadTierlists = async () => {
@@ -109,7 +104,6 @@ export default function TierlistHub() {
                 body: JSON.stringify({
                     name: newTierlistName.trim(),
                     description: newTierlistDescription.trim() || null,
-                    is_public: newTierlistIsPublic ? 1 : 0,
                 }),
             });
 
@@ -120,7 +114,6 @@ export default function TierlistHub() {
                 setShowCreateModal(false);
                 setNewTierlistName("");
                 setNewTierlistDescription("");
-                setNewTierlistIsPublic(false);
 
                 // Rediriger vers la nouvelle tierlist en utilisant le share code
                 router.push(`/tierlist/${data.tierlist.share_code}`);
@@ -138,33 +131,6 @@ export default function TierlistHub() {
 
     const handleOpenTierlist = (shareCode) => {
         router.push(`/tierlist/${shareCode}`);
-    };
-
-    const handleDeleteTierlist = async (tierlistId, tierlistName) => {
-        if (!confirm(`Êtes-vous sûr de vouloir supprimer "${tierlistName}" ?`)) {
-            return;
-        }
-
-        try {
-            console.log("🔄 Suppression de la tierlist:", tierlistId);
-
-            const response = await fetch(`/api/tierlists/${tierlistId}`, {
-                method: "DELETE",
-            });
-
-            const data = await response.json();
-
-            if (data.success) {
-                console.log("✅ Tierlist supprimée");
-                await loadTierlists(); // Recharger la liste
-            } else {
-                console.error("❌ Erreur lors de la suppression:", data.error);
-                alert(`Erreur: ${data.error}`);
-            }
-        } catch (error) {
-            console.error("❌ Erreur réseau lors de la suppression:", error);
-            alert("Erreur réseau lors de la suppression");
-        }
     };
 
     const formatDate = (dateString) => {
@@ -220,13 +186,7 @@ export default function TierlistHub() {
                                 >
                                     {tierlist.name}
                                 </h3>
-                                <button
-                                    className={styles.deleteButton}
-                                    onClick={() => handleDeleteTierlist(tierlist.id, tierlist.name)}
-                                    title="Supprimer cette tierlist"
-                                >
-                                    🗑️
-                                </button>
+                                {/* Suppression désactivée — aucune action disponible */}
                             </div>
 
                             {tierlist.description && (
@@ -295,20 +255,7 @@ export default function TierlistHub() {
                                 />
                             </div>
 
-                            <div className={styles.field}>
-                                <label className={styles.checkboxLabel}>
-                                    <input
-                                        type="checkbox"
-                                        checked={newTierlistIsPublic}
-                                        onChange={(e) => setNewTierlistIsPublic(e.target.checked)}
-                                        disabled={createLoading}
-                                    />
-                                    Tierlist publique (visible dans le hub)
-                                </label>
-                                <small className={styles.fieldHelp}>
-                                    Les tierlists privées ne sont accessibles que par lien de partage
-                                </small>
-                            </div>
+                            {/* Les tierlists sont désormais publiques par défaut — pas d'option de confidentialité */}
                         </div>
 
                         <div className={styles.modalFooter}>

@@ -45,82 +45,83 @@ export default function TierlistPage() {
 
     useEffect(() => {
         setMounted(true);
-        loadTierlist();
-    }, [shareCode]);
 
-    const loadTierlist = async () => {
-        if (!shareCode) return;
+        const doLoad = async () => {
+            if (!shareCode) return;
 
-        try {
-            setLoading(true);
-            console.time('Load tierlist total');
-            console.log('🔄 Résolution du share code:', shareCode);
+            try {
+                setLoading(true);
+                console.time('Load tierlist total');
+                console.log('🔄 Résolution du share code:', shareCode);
 
-            // D'abord, résoudre le share code pour obtenir l'ID de la tierlist
-            console.time('Share code resolution');
-            const shareResponse = await fetch(`/api/share/${shareCode}`);
-            const shareData = await shareResponse.json();
-            console.timeEnd('Share code resolution');
+                // D'abord, résoudre le share code pour obtenir l'ID de la tierlist
+                console.time('Share code resolution');
+                const shareResponse = await fetch(`/api/share/${shareCode}`);
+                const shareData = await shareResponse.json();
+                console.timeEnd('Share code resolution');
 
-            if (!shareData.success) {
-                console.error('❌ Share code invalide:', shareData.error);
-                router.push('/');
-                return;
+                if (!shareData.success) {
+                    console.error('❌ Share code invalide:', shareData.error);
+                    router.push('/');
+                    return;
+                }
+
+                const resolvedTierlistId = shareData.tierlistId;
+                setTierlistId(resolvedTierlistId);
+
+                console.log('✅ Share code résolu vers tierlist ID:', resolvedTierlistId);
+
+                // Maintenant charger TOUTES les données de la tierlist en une seule requête optimisée
+                console.time('Full tierlist data');
+                const fullResponse = await fetch(`/api/tierlists/${resolvedTierlistId}/full`);
+                const fullData = await fullResponse.json();
+                console.timeEnd('Full tierlist data');
+
+                if (!fullData.success) {
+                    console.error('❌ Tierlist non trouvée:', fullData.error);
+                    router.push('/');
+                    return;
+                }
+
+                // Mettre à jour tous les états en une seule fois
+                setTierlist(fullData.tierlist);
+                setCopyName(`Copie de ${fullData.tierlist.name}`);
+
+                const { items, tiers, tierAssignments, tierOrders } = fullData.data;
+
+                setAllItems(items);
+                console.log(`✅ ${items.length} items chargés pour la tierlist`);
+
+                setCustomTiers(tiers);
+                console.log(`✅ ${tiers.length} tiers chargés pour la tierlist`);
+
+                // Convertir les assignments en Map
+                const assignmentsMap = new Map();
+                Object.entries(tierAssignments).forEach(([itemId, tierId]) => {
+                    assignmentsMap.set(itemId, tierId);
+                });
+                setTierAssignments(assignmentsMap);
+                console.log(`✅ ${Object.keys(tierAssignments).length} assignments chargés`);
+
+                // Convertir les ordres en Map
+                const ordersMap = new Map();
+                Object.entries(tierOrders).forEach(([tierId, itemIds]) => {
+                    ordersMap.set(tierId, itemIds);
+                });
+                setTierOrders(ordersMap);
+                console.log(`✅ ${Object.keys(tierOrders).length} tier orders chargés`);
+
+                console.timeEnd('Load tierlist total');
+                console.log('🚀 Chargement complet terminé en mode optimisé !');
+            } catch (error) {
+                console.error('❌ Erreur lors du chargement de la tierlist:', error);
+            } finally {
+                setLoading(false);
             }
+        };
 
-            const resolvedTierlistId = shareData.tierlistId;
-            setTierlistId(resolvedTierlistId);
-
-            console.log('✅ Share code résolu vers tierlist ID:', resolvedTierlistId);
-
-            // Maintenant charger TOUTES les données de la tierlist en une seule requête optimisée
-            console.time('Full tierlist data');
-            const fullResponse = await fetch(`/api/tierlists/${resolvedTierlistId}/full`);
-            const fullData = await fullResponse.json();
-            console.timeEnd('Full tierlist data');
-
-            if (!fullData.success) {
-                console.error('❌ Tierlist non trouvée:', fullData.error);
-                router.push('/');
-                return;
-            }
-
-            // Mettre à jour tous les états en une seule fois
-            setTierlist(fullData.tierlist);
-            setCopyName(`Copie de ${fullData.tierlist.name}`);
-
-            const { items, tiers, tierAssignments, tierOrders } = fullData.data;
-
-            setAllItems(items);
-            console.log(`✅ ${items.length} items chargés pour la tierlist`);
-
-            setCustomTiers(tiers);
-            console.log(`✅ ${tiers.length} tiers chargés pour la tierlist`);
-
-            // Convertir les assignments en Map
-            const assignmentsMap = new Map();
-            Object.entries(tierAssignments).forEach(([itemId, tierId]) => {
-                assignmentsMap.set(itemId, tierId);
-            });
-            setTierAssignments(assignmentsMap);
-            console.log(`✅ ${Object.keys(tierAssignments).length} assignments chargés`);
-
-            // Convertir les ordres en Map
-            const ordersMap = new Map();
-            Object.entries(tierOrders).forEach(([tierId, itemIds]) => {
-                ordersMap.set(tierId, itemIds);
-            });
-            setTierOrders(ordersMap);
-            console.log(`✅ ${Object.keys(tierOrders).length} tier orders chargés`);
-
-            console.timeEnd('Load tierlist total');
-            console.log('🚀 Chargement complet terminé en mode optimisé !');
-        } catch (error) {
-            console.error('❌ Erreur lors du chargement de la tierlist:', error);
-        } finally {
-            setLoading(false);
-        }
-    };
+        doLoad();
+    }, [shareCode, router]);
 
     // Configuration des listeners collaboratifs
     useEffect(() => {
@@ -423,7 +424,7 @@ export default function TierlistPage() {
         return (
             <div className={styles.error}>
                 <h2>Tierlist non trouvée</h2>
-                <button onClick={() => router.push('/')}>Retour à l'accueil</button>
+                <button onClick={() => router.push('/')}>Retour à l&apos;accueil</button>
             </div>
         );
     }
