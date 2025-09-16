@@ -638,9 +638,9 @@ export default function TierList({
                     <div
                       key={item.id}
                       className={`${styles.itemCardWrapper} ${item.isPlaceholder ? styles.placeholder : ""} ${draggedItem?.id === item.id ? styles.dragging : ""} ${(() => {
-                          const { isAncienEmplacementVisible } = getItemDisplayState(item);
-                          return !isAncienEmplacementVisible ? styles.ancienEmplacementInvisible : "";
-                        })()}`}
+                        const { isAncienEmplacementVisible } = getItemDisplayState(item);
+                        return !isAncienEmplacementVisible ? styles.ancienEmplacementInvisible : "";
+                      })()}`}
                       onDragOver={(e) => !item.isPlaceholder && handleDragOverItem(e, item, tier.id)}
                       onDrop={(e) => handleDrop(e, tier.id)}
                     >
@@ -806,14 +806,9 @@ export default function TierList({
                   <h4 className={styles.itemTitle}>
                     {firstUnrankedItem.title || firstUnrankedItem.name}
                   </h4>
-                  {firstUnrankedItem.year && (
-                    <div className={styles.itemYear}>
-                      ({firstUnrankedItem.year})
-                    </div>
-                  )}
-                  {firstUnrankedItem.score && (
-                    <div className={styles.itemScore}>
-                      <strong>Score MAL :</strong> {firstUnrankedItem.score}
+                  {firstUnrankedItem.description && (
+                    <div className={styles.itemDescription}>
+                      {firstUnrankedItem.description}
                     </div>
                   )}
                 </div>
