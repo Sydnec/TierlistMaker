@@ -427,6 +427,21 @@ export default function TierList({
     setTierOrders(newTierOrders);
   };
 
+  // Déplacer un tier (direction: 'up' ou 'down') — uniquement en mode édition
+  const moveTier = (tierId, direction) => {
+    if (!editMode) return;
+    const idx = tiers.findIndex((t) => t.id === tierId);
+    if (idx === -1) return;
+    const newIdx = direction === 'up' ? idx - 1 : idx + 1;
+    if (newIdx < 0 || newIdx >= tiers.length) return;
+
+    const newTiers = [...tiers];
+    const [removed] = newTiers.splice(idx, 1);
+    newTiers.splice(newIdx, 0, removed);
+
+    updateTiers(newTiers);
+  };
+
   // Modifier le nom d'un tier
   const updateTierName = (tierId, newName) => {
     if (!editMode) return;
@@ -522,135 +537,151 @@ export default function TierList({
         </div>
 
         {/* Tiers configurables */}
-        {tiers.map((tier) => (
-          <div
-            key={tier.id}
-            className={styles.tierRow}
-            onDragOver={(e) => handleDragOverTier(e, tier.id)}
-            onDrop={(e) => handleDrop(e, tier.id)}
-            data-tier={tier.id}
-          >
+        {tiers.map((tier, tIndex) => (
+          <div key={tier.id} className={styles.tierWrapper}>
             <div
-              className={styles.tierLabel}
-              style={{ backgroundColor: tier.color }}
+              className={styles.tierRow}
+              onDragOver={(e) => handleDragOverTier(e, tier.id)}
+              onDrop={(e) => handleDrop(e, tier.id)}
+              data-tier={tier.id}
             >
-              {editingTier === tier.id && editMode ? (
-                <input
-                  type="text"
-                  defaultValue={tier.name}
-                  className={styles.tierNameInput}
-                  onBlur={(e) => updateTierName(tier.id, e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      updateTierName(tier.id, e.target.value);
-                    }
-                    if (e.key === "Escape") {
-                      setEditingTier(null);
-                    }
-                  }}
-                  autoFocus
-                />
-              ) : (
-                <span
-                  className={styles.tierName}
-                  onClick={() => editMode && setEditingTier(tier.id)}
-                  title={editMode ? "Cliquer pour modifier" : tier.name}
-                  style={{ cursor: editMode ? "pointer" : "default" }}
-                >
-                  {tier.name}
-                </span>
-              )}
-
-              <div className={styles.tierControls}>
-                {editMode && (
-                  <input
-                    type="color"
-                    value={tier.color}
-                    onChange={(e) => updateTierColor(tier.id, e.target.value)}
-                    className={styles.colorPicker}
-                    title="Changer la couleur"
-                  />
-                )}
-                <span className={styles.tierCount}>
-                  {organizedItems[tier.id]?.length || 0}
-                </span>
+              <div
+                className={styles.tierLabel}
+                style={{ backgroundColor: tier.color }}
+              >
+                {/* Bouton monter (positionné en haut de la case) */}
                 {editMode && tiers.length > 1 && (
                   <button
-                    onClick={() => deleteTier(tier.id)}
-                    className={styles.deleteTierButton}
-                    title="Supprimer ce tier"
+                    onClick={() => moveTier(tier.id, 'up')}
+                    className={`${styles.moveTierButton} ${styles.moveTopButton}`}
+                    title="Monter le tier"
+                    disabled={tIndex === 0}
+                    aria-label={`Monter ${tier.name}`}
                   >
-                    ×
+                    ▲
+                  </button>
+                )}
+
+                {editingTier === tier.id && editMode ? (
+                  <input
+                    type="text"
+                    defaultValue={tier.name}
+                    className={styles.tierNameInput}
+                    onBlur={(e) => updateTierName(tier.id, e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        updateTierName(tier.id, e.target.value);
+                      }
+                      if (e.key === "Escape") {
+                        setEditingTier(null);
+                      }
+                    }}
+                    autoFocus
+                  />
+                ) : (
+                  <span
+                    className={styles.tierName}
+                    onClick={() => editMode && setEditingTier(tier.id)}
+                    title={editMode ? "Cliquer pour modifier" : tier.name}
+                    style={{ cursor: editMode ? "pointer" : "default" }}
+                  >
+                    {tier.name}
+                  </span>
+                )}
+
+                <div className={styles.tierControls}>
+                  {editMode && (
+                    <input
+                      type="color"
+                      value={tier.color}
+                      onChange={(e) => updateTierColor(tier.id, e.target.value)}
+                      className={styles.colorPicker}
+                      title="Changer la couleur"
+                    />
+                  )}
+
+                  {/* Ne pas afficher le count en mode édition */}
+                  {!editMode && (
+                    <span className={styles.tierCount}>
+                      {organizedItems[tier.id]?.length || 0}
+                    </span>
+                  )}
+
+                  {editMode && tiers.length > 1 && (
+                    <button
+                      onClick={() => deleteTier(tier.id)}
+                      className={styles.deleteTierButton}
+                      title="Supprimer ce tier"
+                    >
+                      ×
+                    </button>
+                  )}
+                </div>
+
+                {/* Bouton descendre (positionné en bas de la case) */}
+                {editMode && tiers.length > 1 && (
+                  <button
+                    onClick={() => moveTier(tier.id, 'down')}
+                    className={`${styles.moveTierButton} ${styles.moveBottomButton}`}
+                    title="Descendre le tier"
+                    disabled={tIndex === tiers.length - 1}
+                    aria-label={`Descendre ${tier.name}`}
+                  >
+                    ▼
                   </button>
                 )}
               </div>
-            </div>
 
-            <div className={styles.tierContent}>
-              {organizedItems[tier.id]?.length > 0 ? (
-                organizedItems[tier.id].map((item, index) => (
+              <div className={styles.tierContent}>
+                {organizedItems[tier.id]?.length > 0 ? (
+                  organizedItems[tier.id].map((item, index) => (
+                    <div
+                      key={item.id}
+                      className={`${styles.itemCardWrapper} ${item.isPlaceholder ? styles.placeholder : ""} ${draggedItem?.id === item.id ? styles.dragging : ""} ${(() => {
+                          const { isAncienEmplacementVisible } = getItemDisplayState(item);
+                          return !isAncienEmplacementVisible ? styles.ancienEmplacementInvisible : "";
+                        })()}`}
+                      onDragOver={(e) => !item.isPlaceholder && handleDragOverItem(e, item, tier.id)}
+                      onDrop={(e) => handleDrop(e, tier.id)}
+                    >
+                      {item.isPlaceholder ? (
+                        <div className={styles.dropPlaceholder}>
+                          <ItemCard item={item.draggedItem} tier={tier.id} isPreview={true} />
+                        </div>
+                      ) : (
+                        (() => {
+                          const { isAncienEmplacement, isAncienEmplacementVisible } = getItemDisplayState(item);
+                          return (
+                            <ItemCard
+                              item={item}
+                              tier={tier.id}
+                              onDragStart={handleDragStart}
+                              onDragEnd={handleDragEnd}
+                              onDelete={handleItemUnrank}
+                              isAncienEmplacement={isAncienEmplacement}
+                              isAncienEmplacementVisible={isAncienEmplacementVisible}
+                            />
+                          );
+                        })()
+                      )}
+                    </div>
+                  ))
+                ) : (
                   <div
-                    key={item.id}
-                    className={`${styles.itemCardWrapper} ${item.isPlaceholder ? styles.placeholder : ""
-                      } ${draggedItem?.id === item.id ? styles.dragging : ""} ${(() => {
-                        const { isAncienEmplacementVisible } = getItemDisplayState(item);
-                        return !isAncienEmplacementVisible ? styles.ancienEmplacementInvisible : "";
-                      })()
-                      }`}
-                    onDragOver={(e) =>
-                      !item.isPlaceholder &&
-                      handleDragOverItem(e, item, tier.id)
-                    }
+                    className={`${styles.emptyTier} ${!(draggedItem && dragOverPosition?.tierId === tier.id) ? styles.hasPlaceholder : ""}`}
+                    onDragOver={(e) => handleDragOverEmptyTier(e, tier.id)}
                     onDrop={(e) => handleDrop(e, tier.id)}
                   >
-                    {item.isPlaceholder ? (
+                    {draggedItem && dragOverPosition?.tierId === tier.id ? (
                       <div className={styles.dropPlaceholder}>
-                        <ItemCard
-                          item={item.draggedItem}
-                          tier={tier.id}
-                          isPreview={true}
-                        />
+                        <ItemCard item={draggedItem} tier={tier.id} isPreview={true} />
                       </div>
                     ) : (
-                      (() => {
-                        const { isAncienEmplacement, isAncienEmplacementVisible } = getItemDisplayState(item);
-                        return (
-                          <ItemCard
-                            item={item}
-                            tier={tier.id}
-                            onDragStart={handleDragStart}
-                            onDragEnd={handleDragEnd}
-                            onDelete={handleItemUnrank}
-                            isAncienEmplacement={isAncienEmplacement}
-                            isAncienEmplacementVisible={isAncienEmplacementVisible}
-                          />
-                        );
-                      })()
+                      "Glissez un item ici pour le classer"
                     )}
                   </div>
-                ))
-              ) : (
-                <div
-                  className={`${styles.emptyTier} ${!(draggedItem && dragOverPosition?.tierId === tier.id)
-                    ? styles.hasPlaceholder
-                    : ""
-                    }`}
-                  onDragOver={(e) => handleDragOverEmptyTier(e, tier.id)}
-                  onDrop={(e) => handleDrop(e, tier.id)}
-                >
-                  {draggedItem && dragOverPosition?.tierId === tier.id ? (
-                    <div className={styles.dropPlaceholder}>
-                      <ItemCard
-                        item={draggedItem}
-                        tier={tier.id}
-                        isPreview={true}
-                      />
-                    </div>
-                  ) : (
-                    "Glissez un item ici pour le classer"
-                  )}
-                </div>
-              )}
+                )}
+              </div>
             </div>
           </div>
         ))}

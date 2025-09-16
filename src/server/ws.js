@@ -144,14 +144,65 @@ function initialize(io, db) {
     socket.on('item-move', async (data) => {
       try {
         if (!socket.tierlistId) return;
-        const { itemId, tierId } = data;
+        const { itemId, tierId, oldTier } = data || {};
         const room = getTierlistRoom(socket.tierlistId);
+
+        // Si on retire l'item (unranked)
         if (tierId === 'unranked') {
-          if (dbRef && dbRef.removeItemFromTier) await dbRef.removeItemFromTier(itemId);
+          // Essayer d'utiliser moveItemToTier si disponible pour conserver la logique
+          if (dbRef && dbRef.moveItemToTier) {
+            try {
+              await dbRef.moveItemToTier(itemId, oldTier || null, null);
+            } catch (e) {
+              console.error('WS: erreur moveItemToTier vers unranked', e);
+            }
+          } else if (dbRef && dbRef.removeItemFromTierOrder && oldTier) {
+            try {
+              await dbRef.removeItemFromTierOrder(itemId, oldTier);
+            } catch (e) {
+              console.error('WS: erreur removeItemFromTierOrder', e);
+            }
+          }
+
+          // Mettre à jour l'état en mémoire
           delete room.tierAssignments[itemId];
+
+          // Supprimer l'item des ordres de tous les tiers en mémoire
+          room.tierOrders = room.tierOrders || {};
+          Object.keys(room.tierOrders).forEach((t) => {
+            room.tierOrders[t] = (room.tierOrders[t] || []).filter(id => id !== itemId);
+          });
         } else {
+          // Affectation vers un tier
           room.tierAssignments[itemId] = tierId;
+
+          // Mettre à jour les ordres en mémoire : retirer de tous les autres tiers, ajouter en fin du nouveau tier
+          room.tierOrders = room.tierOrders || {};
+          Object.keys(room.tierOrders).forEach((t) => {
+            if (t !== tierId) {
+              room.tierOrders[t] = (room.tierOrders[t] || []).filter(id => id !== itemId);
+            }
+          });
+
+          if (!room.tierOrders[tierId]) room.tierOrders[tierId] = [];
+          // Retirer si déjà présent
+          room.tierOrders[tierId] = room.tierOrders[tierId].filter(id => id !== itemId);
+          // Ajouter à la fin
+          room.tierOrders[tierId].push(itemId);
+
+          // Persister les changements d'ordre si possible
+          if (dbRef && dbRef.updateTierOrder) {
+            try {
+              await dbRef.updateTierOrder(tierId, room.tierOrders[tierId]);
+              if (oldTier && oldTier !== 'unranked' && room.tierOrders[oldTier]) {
+                await dbRef.updateTierOrder(oldTier, room.tierOrders[oldTier]);
+              }
+            } catch (e) {
+              console.error('WS: erreur persistance updateTierOrder après item-move', e);
+            }
+          }
         }
+
         room.lastModified = Date.now();
         io.to(`tierlist-${socket.tierlistId}`).emit('item-moved', data);
       } catch (err) { console.error('WS item-move error', err); }
@@ -194,6 +245,29 @@ function initialize(io, db) {
         room.lastModified = Date.now();
         io.to(`tierlist-${socket.tierlistId}`).emit('tiers-updated', newTiers);
       } catch (err) { console.error('WS tiers-update error', err); }
+    });
+
+    // Mise à jour de l'ordre d'un tier (reorder à l'intérieur d'un même tier)
+    socket.on('tier-orders-update', async (payload) => {
+      try {
+        if (!socket.tierlistId) return;
+        const { tierId, itemOrder } = payload || {};
+        const room = getTierlistRoom(socket.tierlistId);
+        room.tierOrders = room.tierOrders || {};
+        room.tierOrders[tierId] = itemOrder;
+
+        // Persister en base si possible
+        if (dbRef && dbRef.updateTierOrder) {
+          try {
+            await dbRef.updateTierOrder(tierId, itemOrder);
+          } catch (e) {
+            console.error('WS: erreur persistance updateTierOrder', e);
+          }
+        }
+
+        room.lastModified = Date.now();
+        io.to(`tierlist-${socket.tierlistId}`).emit('tier-orders-updated', { tierId, itemOrder });
+      } catch (err) { console.error('WS tier-orders-update error', err); }
     });
 
     socket.on('bulk-import', async (payload) => {

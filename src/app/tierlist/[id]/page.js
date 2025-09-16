@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter, useParams } from "next/navigation";
 import TierList from "../../../components/TierList";
 import ItemUpload from "../../../components/ItemUpload";
@@ -20,6 +20,8 @@ export default function TierlistPage() {
     const [tierAssignments, setTierAssignments] = useState(new Map());
     const [customTiers, setCustomTiers] = useState(null);
     const [tierOrders, setTierOrders] = useState(new Map());
+    // Référence pour stocker des tiers en attente de persistance si l'ID de la tierlist n'est pas encore résolu
+    const pendingTiersRef = useRef(null);
 
     // États pour les fonctionnalités de partage
     const [showShareModal, setShowShareModal] = useState(false);
@@ -40,6 +42,7 @@ export default function TierlistPage() {
         emitItemDelete,
         emitItemUpdate,
         emitTiersUpdate,
+        emitTierOrdersUpdate,
         setEventListeners,
     } = useCollaborativeState(tierlistId);
 
@@ -174,6 +177,15 @@ export default function TierlistPage() {
                 console.log("📡 Event collaboratif reçu: tiers mis à jour", newTiers);
                 setCustomTiers(newTiers);
             },
+
+            onTierOrdersUpdated: (tierId, itemOrder) => {
+                console.log('📡 Event collaboratif reçu: ordre du tier mis à jour', tierId, itemOrder);
+                setTierOrders(prev => {
+                    const newMap = new Map(prev);
+                    newMap.set(tierId, itemOrder);
+                    return newMap;
+                });
+            }
         };
 
         setEventListeners(listeners);
@@ -227,10 +239,19 @@ export default function TierlistPage() {
         emitTiersUpdate(newTiers);
 
         try {
+            // Si tierlistId n'est pas encore disponible (rare), essayer de tomber sur l'objet tierlist chargé
+            const payloadTierlistId = tierlistId || (tierlist && tierlist.id) || null;
+            if (!payloadTierlistId) {
+                console.warn('⚠️ Envoi des tiers retardé car tierlist_id absent — mise en file d\'attente');
+                // Mettre en file d'attente et retourner sans appeler l'API
+                pendingTiersRef.current = newTiers;
+                return;
+            }
+
             const response = await fetch('/api/tiers', {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ tiers: newTiers, tierlist_id: tierlistId }),
+                body: JSON.stringify({ tiers: newTiers, tierlist_id: payloadTierlistId }),
             });
 
             if (!response.ok) {
@@ -241,6 +262,30 @@ export default function TierlistPage() {
         }
     };
 
+    // Lorsque l'ID de la tierlist devient disponible, envoyer les tiers en attente (s'il y en a)
+    useEffect(() => {
+        if (tierlistId && pendingTiersRef.current) {
+            (async () => {
+                const newTiers = pendingTiersRef.current;
+                pendingTiersRef.current = null;
+                try {
+                    console.log('🔁 Envoi des tiers en attente pour tierlistId:', tierlistId);
+                    const response = await fetch('/api/tiers', {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ tiers: newTiers, tierlist_id: tierlistId }),
+                    });
+
+                    if (!response.ok) {
+                        console.error('❌ Erreur sauvegarde tiers (pending):', response.statusText);
+                    }
+                } catch (error) {
+                    console.error('❌ Erreur réseau sauvegarde tiers (pending):', error);
+                }
+            })();
+        }
+    }, [tierlistId]);
+
     const handleTierOrdersChange = async (tierId, newOrder) => {
         // Mettre à jour l'état local
         setTierOrders(prevOrders => {
@@ -248,6 +293,11 @@ export default function TierlistPage() {
             newOrders.set(tierId, newOrder);
             return newOrders;
         });
+
+        // Émettre via websocket pour notifier les autres clients
+        try {
+            if (emitTierOrdersUpdate) emitTierOrdersUpdate(tierId, newOrder);
+        } catch (e) { console.error('Erreur émission socket ordre tier', e); }
 
         try {
             const response = await fetch('/api/tier-orders', {

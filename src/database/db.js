@@ -136,94 +136,16 @@ class Database {
       }
     );
 
-    // Migration des données existantes et nettoyage des tables redondantes
-    this.migrateToSimplifiedStructure()
-      .then(() => this.removeIsPublicColumnIfPresent())
-      .catch((e) => console.warn('⚠️ Erreur durant les migrations:', e));
+    // Migration legacy désactivée : la base est déjà en structure simplifiée
+
   }
 
-  // Migration sûre pour supprimer la colonne is_public si elle existe
-  async removeIsPublicColumnIfPresent() {
-    return new Promise((resolve) => {
-      try {
-        this.db.all("PRAGMA table_info('tierlists')", [], (err, rows) => {
-          if (err) {
-            console.warn('⚠️ Impossible de vérifier les colonnes de tierlists:', err.message);
-            resolve();
-            return;
-          }
-
-          const hasIsPublic = rows && rows.some(r => r.name === 'is_public');
-          if (!hasIsPublic) {
-            console.log('ℹ️ Colonne is_public absente — aucune migration nécessaire');
-            resolve();
-            return;
-          }
-
-          console.log('🔧 Migration: suppression de la colonne is_public de tierlists');
-          this.db.exec('PRAGMA foreign_keys=OFF; BEGIN TRANSACTION;', (pragmaErr) => {
-            if (pragmaErr) {
-              console.error('❌ Erreur démarrage transaction migration is_public:', pragmaErr);
-              resolve();
-              return;
-            }
-
-            // Créer une table temporaire sans is_public
-            this.db.run(
-              `CREATE TABLE IF NOT EXISTS _tierlists_new (
-                id TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                description TEXT,
-                share_code TEXT UNIQUE,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-              )`,
-              (createErr) => {
-                if (createErr) {
-                  console.error('❌ Erreur création table temporaire:', createErr);
-                  this.db.exec('ROLLBACK; PRAGMA foreign_keys=ON;', () => resolve());
-                  return;
-                }
-
-                // Copier les données (en ignorant is_public)
-                this.db.run(
-                  `INSERT OR REPLACE INTO _tierlists_new (id, name, description, share_code, created_at, updated_at)
-                   SELECT id, name, description, share_code, created_at, updated_at FROM tierlists`,
-                  (copyErr) => {
-                    if (copyErr) {
-                      console.error('❌ Erreur copie données tierlists:', copyErr);
-                      this.db.exec('ROLLBACK; PRAGMA foreign_keys=ON;', () => resolve());
-                      return;
-                    }
-
-                    // Remplacer l'ancienne table
-                    this.db.run('DROP TABLE IF EXISTS tierlists', (dropErr) => {
-                      if (dropErr) console.error('❌ Erreur suppression ancienne table tierlists:', dropErr);
-
-                      this.db.run('ALTER TABLE _tierlists_new RENAME TO tierlists', (renameErr) => {
-                        if (renameErr) console.error('❌ Erreur renommage table temporaire:', renameErr);
-
-                        this.db.exec('COMMIT; PRAGMA foreign_keys=ON;', (commitErr) => {
-                          if (commitErr) console.error('❌ Erreur commit migration is_public:', commitErr);
-                          else console.log('✅ Migration is_public terminée avec succès');
-                          resolve();
-                        });
-                      });
-                    });
-                  }
-                );
-              }
-            );
-          });
-        });
-      } catch (e) {
-        console.error('❌ Exception durant removeIsPublicColumnIfPresent:', e);
-        resolve();
-      }
-    });
+  // Migration vers la structure simplifiée (désactivée)
+  async migrateToSimplifiedStructure() {
+    // Migration legacy neutralisée : rien à faire, retourner une Promise résolue.
+    return Promise.resolve();
   }
 
-  // Méthodes pour les items
   async addItem(itemData) {
     console.log("🗃️ Database.addItem appelée avec:", {
       id: itemData.id,
@@ -476,7 +398,6 @@ class Database {
     });
   }
 
-  // Méthodes pour les tiers
   async getAllTiers() {
     return new Promise((resolve, reject) => {
       this.db.all(
@@ -533,7 +454,7 @@ class Database {
       const { id, tierlist_id, name, color, position } = tierData;
 
       this.db.run(
-        `INSERT INTO tiers (id, tierlist_id, name, color, position, updated_at)
+        `INSERT OR REPLACE INTO tiers (id, tierlist_id, name, color, position, updated_at)
          VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
         [id, tierlist_id, name, color, position],
         function (err) {
@@ -705,34 +626,12 @@ class Database {
     });
   }
 
-  async getTierAssignments() {
-    return new Promise((resolve, reject) => {
-      this.db.all(
-        `SELECT * FROM tier_assignments ORDER BY tier_id, position ASC`,
-        [],
-        (err, rows) => {
-          if (err) {
-            reject(err);
-          } else {
-            // Convertir en Map pour compatibilité avec le code existant
-            const assignments = {};
-            const orders = {};
-
-            rows.forEach((row) => {
-              assignments[row.item_id] = row.tier_id;
-
-              if (!orders[row.tier_id]) {
-                orders[row.tier_id] = [];
-              }
-              orders[row.tier_id].push(row.item_id);
-            });
-
-            resolve({ assignments, orders });
-          }
-        }
-      );
-    });
-  }
+  // NOTE: anciennes méthodes legacy supprimées.
+  // Utilisez dorénavant :
+  // - getTierAssignmentsFromTiers(tierlistId) pour reconstruire assignments et tierOrders
+  // - updateTierOrder(tierId, itemOrder) pour sauvegarder l'ordre d'un tier
+  // - moveItemToTier(itemId, oldTierId, newTierId, position) pour déplacer un item entre tiers
+  // - addItemToTierOrder(itemId, tierId, position) / removeItemFromTierOrder(itemId, tierId) pour manipuler des ordres individuels
 
   async getFullState() {
     try {
@@ -1093,63 +992,6 @@ class Database {
     });
   }
 
-  async getTierAssignmentsByTierlist(tierlistId) {
-    console.log("⚠️ Utilisation de l'ancienne méthode getTierAssignmentsByTierlist - à migrer");
-    const result = await this.getTierAssignmentsFromTiers(tierlistId);
-    return Object.entries(result.assignments).map(([item_id, tier_id]) => ({ item_id, tier_id }));
-  }
-
-  async getTierOrdersByTierlist(tierlistId) {
-    console.log("⚠️ Utilisation de l'ancienne méthode getTierOrdersByTierlist - à migrer");
-    const result = await this.getTierAssignmentsFromTiers(tierlistId);
-    return Object.entries(result.tierOrders).map(([tier_id, item_order]) => ({
-      tier_id,
-      item_order: JSON.stringify(item_order)
-    }));
-  }
-
-  async getAllTierAssignments() {
-    throw new Error("Méthode getAllTierAssignments non supportée dans la version simplifiée");
-  }
-
-  async saveTierAssignment(assignmentData) {
-    console.log("⚠️ Utilisation de l'ancienne méthode saveTierAssignment - ignorée car redondante");
-    // Dans la nouvelle structure, cette méthode n'est plus nécessaire
-    // car les assignments sont gérés via les tiers directement
-    return { changes: 1 }; // Simulation pour compatibilité
-  }
-
-  async removeItemFromTier(itemId) {
-    console.log("⚠️ Utilisation de l'ancienne méthode removeItemFromTier - à migrer");
-    // Pour l'instant, on ne fait rien car cette logique est gérée par moveItemToTier
-    return { changes: 1 }; // Simulation pour compatibilité
-  }
-
-  async saveTierOrder(orderData) {
-    console.log("⚠️ Utilisation de l'ancienne méthode saveTierOrder - redirection vers updateTierOrder");
-    return this.updateTierOrder(orderData.tier_id, orderData.item_order);
-  }
-
-  async getTierOrdersByTierlist(tierlistId) {
-    return new Promise((resolve, reject) => {
-      this.db.all(
-        `SELECT tier_orders.* FROM tier_orders
-         JOIN tiers t ON tier_orders.tier_id = t.id
-         WHERE t.tierlist_id = ?`,
-        [tierlistId],
-        (err, rows) => {
-          if (err) {
-            console.error("🗃️ Erreur SQL dans getTierOrdersByTierlist:", err);
-            reject(err);
-          } else {
-            console.log(`🗃️ ${rows.length} ordres récupérés pour tierlist ${tierlistId}`);
-            resolve(rows);
-          }
-        }
-      );
-    });
-  }
-
   async manualSelect(query) {
     return new Promise((resolve, reject) => {
       this.db.all(
@@ -1169,134 +1011,6 @@ class Database {
         if (err) reject(err);
         else resolve({ changes: this.changes });
       });
-    });
-  }
-
-  async saveTierAssignment(assignmentData) {
-    console.log("🗃️ Database.saveTierAssignment appelée avec:", assignmentData);
-
-    return new Promise((resolve, reject) => {
-      const { item_id, tier_id, position = 0 } = assignmentData;
-
-      this.db.run(
-        `INSERT OR REPLACE INTO tier_assignments (item_id, tier_id, position, updated_at)
-         VALUES (?, ?, ?, CURRENT_TIMESTAMP)`,
-        [item_id, tier_id, position],
-        function (err) {
-          if (err) {
-            console.error("🗃️ Erreur SQL dans saveTierAssignment:", err);
-            reject(err);
-          } else {
-            console.log("🗃️ Assignment sauvegardé - changes:", this.changes);
-            resolve({ changes: this.changes });
-          }
-        }
-      );
-    });
-  }
-
-  async saveTierOrder(orderData) {
-    console.log("🗃️ Database.saveTierOrder appelée avec:", orderData);
-
-    return new Promise((resolve, reject) => {
-      const { tier_id, item_order } = orderData;
-
-      this.db.run(
-        `INSERT OR REPLACE INTO tier_orders (tier_id, item_order, updated_at)
-         VALUES (?, ?, CURRENT_TIMESTAMP)`,
-        [tier_id, JSON.stringify(item_order)],
-        function (err) {
-          if (err) {
-            console.error("🗃️ Erreur SQL dans saveTierOrder:", err);
-            reject(err);
-          } else {
-            console.log("🗃️ Ordre sauvegardé - changes:", this.changes);
-            resolve({ changes: this.changes });
-          }
-        }
-      );
-    });
-  }
-
-  // Migration vers la structure simplifiée
-  async migrateToSimplifiedStructure() {
-    return new Promise((resolve, reject) => {
-      console.log("🔄 Migration vers la structure simplifiée...");
-
-      // Vérifier si les anciennes tables existent
-      this.db.get("SELECT name FROM sqlite_master WHERE type='table' AND name='tier_orders'",
-        async (err, row) => {
-          if (err) {
-            console.log("⚠️ Erreur vérification table tier_orders:", err);
-            resolve();
-            return;
-          }
-
-          if (!row) {
-            console.log("✅ Migration déjà effectuée ou pas de données à migrer");
-            resolve();
-            return;
-          }
-
-          try {
-            // Migrer les données de tier_orders vers tiers.item_order
-            console.log("📦 Migration des ordres des tiers...");
-            this.db.all("SELECT tier_id, item_order FROM tier_orders",
-              (err, orders) => {
-                if (err) {
-                  console.error("❌ Erreur lecture tier_orders:", err);
-                  resolve();
-                  return;
-                }
-
-                console.log(`📋 ${orders.length} ordres de tiers à migrer`);
-
-                // Mettre à jour chaque tier avec son ordre
-                const updatePromises = orders.map(order => {
-                  return new Promise((resolveUpdate, rejectUpdate) => {
-                    this.db.run(
-                      "UPDATE tiers SET item_order = ? WHERE id = ?",
-                      [order.item_order || '[]', order.tier_id],
-                      function (err) {
-                        if (err) {
-                          console.error(`❌ Erreur mise à jour tier ${order.tier_id}:`, err);
-                          rejectUpdate(err);
-                        } else {
-                          console.log(`✅ Tier ${order.tier_id} mis à jour`);
-                          resolveUpdate();
-                        }
-                      }
-                    );
-                  });
-                });
-
-                Promise.all(updatePromises).then(() => {
-                  // Supprimer les anciennes tables
-                  console.log("🗑️ Suppression des tables redondantes...");
-                  this.db.run("DROP TABLE IF EXISTS tier_assignments", (err) => {
-                    if (err) console.error("❌ Erreur suppression tier_assignments:", err);
-                    else console.log("✅ Table tier_assignments supprimée");
-                  });
-
-                  this.db.run("DROP TABLE IF EXISTS tier_orders", (err) => {
-                    if (err) console.error("❌ Erreur suppression tier_orders:", err);
-                    else console.log("✅ Table tier_orders supprimée");
-                  });
-
-                  console.log("🎉 Migration terminée avec succès!");
-                  resolve();
-                }).catch(err => {
-                  console.error("❌ Erreur durant la migration:", err);
-                  resolve();
-                });
-              }
-            );
-          } catch (error) {
-            console.error("❌ Erreur durant la migration:", error);
-            resolve();
-          }
-        }
-      );
     });
   }
 

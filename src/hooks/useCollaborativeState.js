@@ -283,6 +283,28 @@ export function useCollaborativeState(tierlistId) {
       }
     });
 
+    // Ordre d'un tier mis à jour par un autre utilisateur
+    socketInstance.on("tier-orders-updated", (payload) => {
+      try {
+        console.log("Ordre d'un tier reçu:", payload);
+        const { tierId, itemOrder } = payload || {};
+        setCollaborativeState((prev) => {
+          const newTierOrders = { ...(prev.tierOrders || {}) };
+          newTierOrders[tierId] = itemOrder;
+          return {
+            ...prev,
+            tierOrders: newTierOrders,
+          };
+        });
+
+        if (listenersRef.current.onTierOrdersUpdated) {
+          listenersRef.current.onTierOrdersUpdated(tierId, itemOrder);
+        }
+      } catch (e) {
+        console.error('Erreur traitement tier-orders-updated', e);
+      }
+    });
+
     // Import en lot par un autre utilisateur
     socketInstance.on("bulk-imported", (items) => {
       console.log(`Import en lot reçu: ${items.length} items`);
@@ -405,6 +427,17 @@ export function useCollaborativeState(tierlistId) {
     }
   };
 
+  // Émettre une mise à jour d'ordre pour un tier (reordering à l'intérieur d'un même tier)
+  const emitTierOrdersUpdate = (tierId, itemOrder) => {
+    if (socket && tierlistIdRef.current) {
+      socket.emit("tier-orders-update", {
+        tierId,
+        itemOrder,
+        tierlistId: tierlistIdRef.current,
+      });
+    }
+  };
+
   const emitTiersUpdate = (tiers) => {
     if (socket && tierlistIdRef.current) {
       socket.emit("tiers-update", {
@@ -472,5 +505,6 @@ export function useCollaborativeState(tierlistId) {
     emitBulkImport,
     requestSync,
     setEventListeners,
+    emitTierOrdersUpdate,
   };
 }

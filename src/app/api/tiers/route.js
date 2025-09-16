@@ -36,6 +36,17 @@ export async function PUT(request) {
         const body = await request.json();
         const { tiers, tierlist_id } = body;
 
+        // Validation d'entrée — éviter des opérations destructrices sans tierlist_id
+        if (!Array.isArray(tiers)) {
+            console.error('❌ Payload invalide pour PUT /api/tiers : tiers doit être un tableau');
+            return NextResponse.json({ success: false, error: 'Invalid payload: tiers must be an array' }, { status: 400 });
+        }
+
+        if (!tierlist_id) {
+            console.error('❌ tierlist_id manquant pour PUT /api/tiers — abandon');
+            return NextResponse.json({ success: false, error: 'tierlist_id is required' }, { status: 400 });
+        }
+
         console.log('🎯 Mise à jour des tiers pour tierlist:', tierlist_id);
         const db = Database.getInstance();
 
