@@ -135,15 +135,6 @@ class Database {
         }
       }
     );
-
-    // Migration legacy désactivée : la base est déjà en structure simplifiée
-
-  }
-
-  // Migration vers la structure simplifiée (désactivée)
-  async migrateToSimplifiedStructure() {
-    // Migration legacy neutralisée : rien à faire, retourner une Promise résolue.
-    return Promise.resolve();
   }
 
   async addItem(itemData) {
@@ -417,27 +408,52 @@ class Database {
   async updateTiers(tiers) {
     return new Promise(async (resolve, reject) => {
       try {
-        // Supprimer tous les tiers existants
-        await new Promise((res, rej) => {
-          this.db.run(`DELETE FROM tiers`, [], (err) => {
-            if (err) rej(err);
-            else res();
-          });
-        });
+        if (!Array.isArray(tiers)) return resolve();
 
-        // Insérer les nouveaux tiers
-        for (let i = 0; i < tiers.length; i++) {
-          const tier = tiers[i];
-          await new Promise((res, rej) => {
-            this.db.run(
-              `INSERT INTO tiers (id, name, color, position) VALUES (?, ?, ?, ?)`,
-              [tier.id, tier.name, tier.color, i],
-              (err) => {
+        // Grouper les tiers par tierlist_id (peut être null pour les anciens cas)
+        const groups = tiers.reduce((acc, t) => {
+          const key = t.tierlist_id || null;
+          if (!acc[key]) acc[key] = [];
+          acc[key].push(t);
+          return acc;
+        }, {});
+
+        // Pour chaque groupe, supprimer uniquement les tiers concernés puis insérer
+        for (const tierlistId of Object.keys(groups)) {
+          const list = groups[tierlistId];
+
+          if (tierlistId) {
+            // Supprimer les tiers existants pour cette tierlist uniquement
+            await new Promise((res, rej) => {
+              this.db.run(`DELETE FROM tiers WHERE tierlist_id = ?`, [tierlistId], (err) => {
                 if (err) rej(err);
                 else res();
-              }
-            );
-          });
+              });
+            });
+          } else {
+            // Cas legacy : supprimer uniquement les tiers sans tierlist_id
+            await new Promise((res, rej) => {
+              this.db.run(`DELETE FROM tiers WHERE tierlist_id IS NULL`, [], (err) => {
+                if (err) rej(err);
+                else res();
+              });
+            });
+          }
+
+          // Insérer les nouveaux tiers en conservant tierlist_id
+          for (let i = 0; i < list.length; i++) {
+            const tier = list[i];
+            await new Promise((res, rej) => {
+              this.db.run(
+                `INSERT INTO tiers (id, tierlist_id, name, color, position) VALUES (?, ?, ?, ?, ?)`,
+                [tier.id, tier.tierlist_id || null, tier.name, tier.color, i],
+                (err) => {
+                  if (err) rej(err);
+                  else res();
+                }
+              );
+            });
+          }
         }
 
         resolve();
@@ -625,13 +641,6 @@ class Database {
       );
     });
   }
-
-  // NOTE: anciennes méthodes legacy supprimées.
-  // Utilisez dorénavant :
-  // - getTierAssignmentsFromTiers(tierlistId) pour reconstruire assignments et tierOrders
-  // - updateTierOrder(tierId, itemOrder) pour sauvegarder l'ordre d'un tier
-  // - moveItemToTier(itemId, oldTierId, newTierId, position) pour déplacer un item entre tiers
-  // - addItemToTierOrder(itemId, tierId, position) / removeItemFromTierOrder(itemId, tierId) pour manipuler des ordres individuels
 
   async getFullState() {
     try {
